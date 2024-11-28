@@ -51,7 +51,7 @@ public class ServerService(ILogger<ServerService> logger, Config config) : Backg
                 var bytesRead = await clientStream.ReadAsync(tagLengthBuffer, stoppingToken);
                 if (bytesRead == 0)
                 {
-                    logger.LogInformation("Client disconnected.");
+                    logger.LogDebug("Client disconnected.");
                     break;
                 }
 
@@ -62,12 +62,12 @@ public class ServerService(ILogger<ServerService> logger, Config config) : Backg
                 bytesRead = await clientStream.ReadAsync(tagBuffer, stoppingToken);
                 if (bytesRead == 0)
                 {
-                    logger.LogInformation("Client disconnected while reading tag.");
+                    logger.LogDebug("Client disconnected while reading tag.");
                     break;
                 }
 
                 var tag = Encoding.UTF8.GetString(tagBuffer);
-                logger.LogInformation("Received tag: {Tag}", tag);
+                logger.LogDebug("Received tag: {Tag}", tag);
 
                 if (tag == "ping")
                 {
