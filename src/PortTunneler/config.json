@@ -1,0 +1,26 @@
+﻿{
+    "Client": {
+      "NeededServices": [
+        {
+          "ServiceName": "webui",
+          "LocalPort": 8080
+        },
+        {
+          "ServiceName": "sql",
+          "LocalPort": 1433
+        },
+        {
+          "ServiceName": "sql2",
+          "LocalPort": 1434,
+          "Destination": "10.211.55.6:1433",
+          "Direct": true
+
+        }
+      ]
+    },
+    "Server": {
+      "OfferedServices": [
+        
+      ]
+    }
+}
