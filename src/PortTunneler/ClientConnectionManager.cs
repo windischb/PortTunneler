@@ -1,79 +1,54 @@
-﻿using System.Collections.Concurrent;
-using Microsoft.Extensions.DependencyInjection;
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PortTunneler.Connections;
 
 namespace PortTunneler;
 
-public class ClientConnectionManager : IHostedService
+public sealed class ClientConnectionManager(
+    IClientConnectionFactory connectionFactory,
+    ILogger<ClientConnectionManager> logger,
+    PortTunnelerConfig config) : IHostedService
 {
-    
-    private readonly ILogger<ClientConnectionManager> _logger;
-    private readonly Config _clientConfig;
-    private readonly IServiceProvider _serviceProvider;
-
-    public ClientConnectionManager(IServiceProvider serviceProvider,
-        ILogger<ClientConnectionManager> logger,
-        Config configuration)
-    {
-        _serviceProvider = serviceProvider;
-        _logger = logger;
-        _clientConfig = configuration;
-    }
-
     private ConcurrentDictionary<int, IClientConnection> Connections { get; } = new();
 
-
-    public IClientConnection Add(ConnectionInfo connectionInfo)
+    public IClientConnection Add(TunnelConfig tunnelConfig)
     {
-        if (Connections.ContainsKey(connectionInfo.LocalPort))
+        var connection = connectionFactory.Create(tunnelConfig);
+
+        if (!Connections.TryAdd(tunnelConfig.ListenPort, connection))
         {
-            throw new Exception($"A Listerner on port '{connectionInfo.LocalPort}' already exists!");
+            connection.Dispose();
+            throw new InvalidOperationException($"A listener on port '{tunnelConfig.ListenPort}' already exists!");
         }
 
-        if (connectionInfo.Destination == null)
-        {
-            return Connections.GetOrAdd(connectionInfo.LocalPort,
-                ActivatorUtilities.CreateInstance<DiscoverClientConnection>(_serviceProvider, connectionInfo));
-        }
-
-        if (!connectionInfo.Direct)
-        {
-            return Connections.GetOrAdd(connectionInfo.LocalPort,
-                ActivatorUtilities.CreateInstance<MultiplexingClientConnection>(_serviceProvider, connectionInfo));
-        }
-
-        return Connections.GetOrAdd(connectionInfo.LocalPort,
-            ActivatorUtilities.CreateInstance<DirectClientConnection>(_serviceProvider, connectionInfo));
-
+        return connection;
     }
 
-    public void Remove(int localPort)
+    public async Task RemoveAsync(int localPort)
     {
         if (Connections.TryRemove(localPort, out var clientService))
         {
-            clientService.StopAsync(default);
+            await clientService.StopAsync(default);
+            await clientService.DisposeAsync();
         }
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        foreach (var connectionInfo in _clientConfig.Client.NeededServices.Select(ns => new ConnectionInfo(ns.LocalPort, ns.ServiceName, ns.Destination.ToIpEndpoint(), ns.Direct)))
+        foreach (var tunnel in config.Tunnels)
         {
-            var connection = Add(connectionInfo);
+            var connection = Add(tunnel);
             connection.StartListening();
+            logger.LogInformation("Started tunnel {Name} on port {Port}.", tunnel.Name, tunnel.ListenPort);
         }
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        foreach (var connectionsKey in Connections.Keys)
+        foreach (var key in Connections.Keys)
         {
-            Remove(connectionsKey);
+            await RemoveAsync(key);
         }
-        
-        return Task.CompletedTask;
     }
 }

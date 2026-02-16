@@ -1,46 +1,35 @@
-﻿using System.Net;
-using Microsoft.Extensions.DependencyInjection;
+using System.Net;
 using Microsoft.Extensions.Logging;
 
-namespace PortTunneler
+namespace PortTunneler;
+
+public sealed class DestinationMonitorRegistry(ILogger<DestinationMonitor> monitorLogger)
 {
-    public class DestinationMonitorRegistry
+    private readonly Dictionary<IPEndPoint, DestinationMonitor> _monitors = [];
+    private readonly Lock _lock = new();
+
+    public DestinationMonitor GetOrCreateMonitor(IPEndPoint destination)
     {
-        private readonly IServiceProvider _serviceProvider;
-        private readonly Dictionary<IPEndPoint, DestinationMonitor> _monitors = new();
-        private readonly object _lock = new();
-
-        public DestinationMonitorRegistry(IServiceProvider serviceProvider)
+        lock (_lock)
         {
-            _serviceProvider = serviceProvider;
-        }
-
-        
-        public DestinationMonitor GetOrCreateMonitor(IPEndPoint destination)
-        {
-            lock (_lock)
+            if (!_monitors.TryGetValue(destination, out var monitor))
             {
-                if (!_monitors.TryGetValue(destination, out var monitor))
-                {
-                    var logger = _serviceProvider.GetRequiredService<ILogger<DestinationMonitor>>();
-                    monitor = new DestinationMonitor(destination, logger);
-                    monitor.NoClientsLeft = RemoveMonitor;
-                    _monitors[destination] = monitor;
-                }
-
-                return monitor;
+                monitor = new DestinationMonitor(destination, monitorLogger);
+                monitor.NoClientsLeft = RemoveMonitor;
+                _monitors[destination] = monitor;
             }
-        }
 
-        private void RemoveMonitor(IPEndPoint destination)
+            return monitor;
+        }
+    }
+
+    private void RemoveMonitor(IPEndPoint destination)
+    {
+        lock (_lock)
         {
-            lock (_lock)
+            if (_monitors.Remove(destination, out var monitor))
             {
-                if (_monitors.ContainsKey(destination))
-                {
-                    _monitors[destination].NoClientsLeft = null;
-                    _monitors.Remove(destination);
-                }
+                monitor.NoClientsLeft = null;
             }
         }
     }

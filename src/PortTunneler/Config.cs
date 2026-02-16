@@ -1,46 +1,51 @@
-﻿using Serilog.Events;
+using System.Text.Json.Serialization;
+using Serilog.Events;
 
 namespace PortTunneler;
 
-public class Config
+public sealed class PortTunnelerConfig
 {
-    public ClientConfig Client { get; set; } = new();
-    public ServerConfig? Server { get; set; } = new();
-    public LoggingConfig Logging { get; set; } = new();
+    public IReadOnlyList<TunnelConfig> Tunnels { get; init; } = [];
+    public ServerConfig? Server { get; init; }
+    public LoggingConfig Logging { get; init; } = new();
 }
 
-public class LoggingConfig
+public sealed class LoggingConfig
 {
-    public LogEventLevel LogLevel { get; set; } = LogEventLevel.Warning;
-}
-public class ClientConfig
-{
-    public List<NeededServiceConfig> NeededServices { get; set; } = new();
+    public LogEventLevel LogLevel { get; init; } = LogEventLevel.Warning;
 }
 
-public class ServerConfig
+[JsonConverter(typeof(TunnelConfigJsonConverter))]
+public abstract class TunnelConfig
 {
-    public List<OfferedServiceConfig> OfferedServices { get; set; } = new();
+    public required string Name { get; init; }
+    public required int ListenPort { get; init; }
 }
 
-public class NeededServiceConfig
+public sealed class DiscoverTunnelConfig : TunnelConfig
 {
-    public int LocalPort { get; set; }
-    public bool Direct { get; set; }
-    public string? Destination { get; set; }
-    public string ServiceName { get; set; }
+    public int DiscoveryPort { get; init; } = 7608;
 }
 
-public class OfferedServiceConfig
+public sealed class TunnelTunnelConfig : TunnelConfig
 {
-    public string ServiceName { get; set; }
-    public string Destination { get; set; }
-    public ConnectionType Type { get; set; } = ConnectionType.Direct;
+    public required string ServerAddress { get; init; }
 }
 
-public enum ConnectionType
+public sealed class DirectTunnelConfig : TunnelConfig
 {
-    Direct,
-    Forward,
-    Discovery
+    public required string TargetAddress { get; init; }
+}
+
+public sealed class ServerConfig
+{
+    public int ListenPort { get; init; } = 51000;
+    public int DiscoveryPort { get; init; } = 7608;
+    public IReadOnlyList<ExposedServiceConfig> Services { get; init; } = [];
+}
+
+public sealed class ExposedServiceConfig
+{
+    public required string Name { get; init; }
+    public required string TargetAddress { get; init; }
 }

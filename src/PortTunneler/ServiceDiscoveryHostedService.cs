@@ -6,18 +6,21 @@ using Microsoft.Extensions.Logging;
 
 namespace PortTunneler;
 
-public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService> logger, Config config)
+public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService> logger, PortTunnelerConfig config)
     : BackgroundService
 {
-    private UdpClient _udpClient = new(7608);
+    private UdpClient? _udpClient;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (config.Server == null)
-        {
             return;
-        }
-        logger.LogInformation("Listening for UDP discovery requests on port 7608...");
+
+        var discoveryPort = config.Server.DiscoveryPort;
+        var listenPort = config.Server.ListenPort;
+
+        _udpClient = new UdpClient(discoveryPort);
+        logger.LogInformation("Listening for UDP discovery requests on port {Port}...", discoveryPort);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -28,25 +31,31 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
                 if (result.RemoteEndPoint.Address.Equals(GetLocalIpAddress()))
                 {
                     logger.LogDebug("Ignored broadcast message from self.");
-                    return;
+                    continue;
                 }
-                
+
                 var requestMessage = Encoding.UTF8.GetString(result.Buffer);
 
-                logger.LogDebug("Received discovery request for service {ServiceName} from {RemoteEndPoint}.", requestMessage, result.RemoteEndPoint);
+                logger.LogDebug("Received discovery request for service {ServiceName} from {RemoteEndPoint}.",
+                    requestMessage, result.RemoteEndPoint);
 
-                if (config.Server.OfferedServices.Select(s => s.ServiceName).Contains(requestMessage))
+                if (config.Server.Services.Any(s => s.Name == requestMessage))
                 {
-                    const string responseMessage = "51000";
+                    var responseMessage = listenPort.ToString();
                     var responseData = Encoding.UTF8.GetBytes(responseMessage);
                     await _udpClient.SendAsync(responseData, responseData.Length, result.RemoteEndPoint);
 
-                    logger.LogDebug("Responded with endpoint {EndPoint} for service {ServiceName}.", responseMessage, requestMessage);
+                    logger.LogDebug("Responded with endpoint {EndPoint} for service {ServiceName}.",
+                        responseMessage, requestMessage);
                 }
                 else
                 {
                     logger.LogWarning("No matching service found for {ServiceName}.", requestMessage);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
             catch (Exception ex)
             {
@@ -55,7 +64,7 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
         }
     }
 
-    private IPAddress GetLocalIpAddress()
+    private static IPAddress GetLocalIpAddress()
     {
         var host = Dns.GetHostEntry(Dns.GetHostName());
         foreach (var ip in host.AddressList)
@@ -65,12 +74,12 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
                 return ip;
             }
         }
-        throw new Exception("No network adapters with an IPv4 address in the system!");
+        throw new InvalidOperationException("No network adapters with an IPv4 address in the system!");
     }
-    
+
     public override void Dispose()
     {
-        _udpClient.Dispose();
+        _udpClient?.Dispose();
         base.Dispose();
     }
 }

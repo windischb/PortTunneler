@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 
 namespace PortTunneler;
 
@@ -7,23 +7,46 @@ public static class IpEndpointExtensions
     public static IPEndPoint? ToIpEndpoint(this string? value)
     {
         if (value is null)
-        {
             return null;
-        }
-        
-        if (!value.Contains(':')) //no port
+
+        if (IPEndPoint.TryParse(value, out var endpoint))
+            return endpoint;
+
+        return ParseHostPort(value);
+    }
+
+    public static IPEndPoint ParseEndpointOrThrow(string value, string fieldName)
+    {
+        return value.ToIpEndpoint()
+               ?? throw new ArgumentException($"'{value}' is not a valid endpoint for {fieldName}. Expected format: host:port");
+    }
+
+    private static IPEndPoint? ParseHostPort(string value)
+    {
+        var colonIndex = value.LastIndexOf(':');
+        if (colonIndex <= 0 || colonIndex == value.Length - 1)
+            return null;
+
+        var host = value[..colonIndex];
+        var portStr = value[(colonIndex + 1)..];
+
+        if (!int.TryParse(portStr, out var port) || port is < 1 or > 65535)
+            return null;
+
+        if (IPAddress.TryParse(host, out var address))
+            return new IPEndPoint(address, port);
+
+        try
         {
-            return new IPEndPoint(IPAddress.Parse(value), 0);
+            var addresses = Dns.GetHostAddresses(host);
+            if (addresses.Length > 0)
+                return new IPEndPoint(addresses[0], port);
+        }
+        catch
+        {
+            // Resolution failed
         }
 
-        if (value.StartsWith(':')) // only port
-        {
-            return new IPEndPoint(IPAddress.Loopback, int.Parse(value[1..]));
-        }
-        
-        var parts = value.Split(':');
-        var address = IPAddress.Parse(parts[0]);
-        var port = int.Parse(parts[1]);
-        return new IPEndPoint(address, port);
+        return null;
     }
 }

@@ -6,7 +6,7 @@ public static class NativeMethods
 {
     public const int STANDARD_RIGHTS_REQUIRED = 0xF0000;
     public const int SERVICE_WIN32_OWN_PROCESS = 0x00000010;
-    
+
     [DllImport("advapi32.dll", EntryPoint = "OpenSCManagerW", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr OpenSCManager(string machineName, string databaseName, ScmAccessRights dwDesiredAccess);
 

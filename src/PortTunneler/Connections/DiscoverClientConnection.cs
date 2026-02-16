@@ -1,45 +1,53 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace PortTunneler.Connections;
 
-public class DiscoverClientConnection(IServiceProvider serviceProvider, ConnectionInfo connectionInfo) : IClientConnection
+public sealed class DiscoverClientConnection : IClientConnection, IMonitorableClient
 {
-    private readonly int _discoveryPort = 7608;
-    private UdpClient? _udpClient;
+    private readonly int _discoveryPort;
+    private readonly string _serviceName;
+    private readonly int _listenPort;
     private bool _isDiscoveryActive;
-    private readonly object _discoveryLock = new();
+    private readonly Lock _discoveryLock = new();
     private CancellationTokenSource _cts = new();
     private MultiplexingClientConnection? _tunnelClientConnection;
-    private readonly ILogger<DiscoverClientConnection> _logger =
-        serviceProvider.GetRequiredService<ILogger<DiscoverClientConnection>>();
-
+    private readonly ILogger<DiscoverClientConnection> _logger;
+    private readonly ILogger<MultiplexingClientConnection> _multiplexingLogger;
     private DestinationMonitor? _destinationMonitor;
-    private ConnectionInfo _connectionInfo = connectionInfo;
+    private readonly DestinationMonitorRegistry _monitorRegistry;
 
-    private DestinationMonitorRegistry DestinationMonitorRegistry { get; } =
-        serviceProvider.GetRequiredService<DestinationMonitorRegistry>();
+    public DiscoverClientConnection(
+        ILogger<DiscoverClientConnection> logger,
+        ILogger<MultiplexingClientConnection> multiplexingLogger,
+        DestinationMonitorRegistry monitorRegistry,
+        DiscoverTunnelConfig tunnelConfig)
+    {
+        _logger = logger;
+        _multiplexingLogger = multiplexingLogger;
+        _monitorRegistry = monitorRegistry;
+        _serviceName = tunnelConfig.Name;
+        _listenPort = tunnelConfig.ListenPort;
+        _discoveryPort = tunnelConfig.DiscoveryPort;
+    }
 
     public void StartListening()
     {
-        _ = DiscoverAndConnectServiceAsync(_cts.Token);
+        _ = DiscoverAndConnectServiceAsync(_cts.Token).ContinueWith(
+            t => _logger.LogCritical(t.Exception, "Unhandled exception in DiscoverAndConnectServiceAsync."),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Direct Client Connection is stopping.");
+        _logger.LogInformation("Discover Client Connection is stopping.");
         await _cts.CancelAsync();
-        _udpClient?.Close();
-        _udpClient?.Dispose();
-        _udpClient = null;
         if (_tunnelClientConnection != null)
         {
             await _tunnelClientConnection.StopAsync(cancellationToken);
         }
-
     }
 
     public async Task NotifyDestinationUnreachable(IPEndPoint endPoint)
@@ -47,11 +55,15 @@ public class DiscoverClientConnection(IServiceProvider serviceProvider, Connecti
         _destinationMonitor?.UnregisterClient(this);
         _destinationMonitor = null;
         await StopAsync(_cts.Token);
+        var oldCts = _cts;
         _cts = new CancellationTokenSource();
+        oldCts.Dispose();
         await Task.Delay(TimeSpan.FromSeconds(1));
-        _ = DiscoverAndConnectServiceAsync(_cts.Token);
-
+        _ = DiscoverAndConnectServiceAsync(_cts.Token).ContinueWith(
+            t => _logger.LogCritical(t.Exception, "Unhandled exception in DiscoverAndConnectServiceAsync."),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
+
     private async Task DiscoverAndConnectServiceAsync(CancellationToken token)
     {
         lock (_discoveryLock)
@@ -62,15 +74,14 @@ public class DiscoverClientConnection(IServiceProvider serviceProvider, Connecti
 
         try
         {
-
             while (!token.IsCancellationRequested)
             {
-                var udpClient = new UdpClient(); // No specific port binding
+                using var udpClient = new UdpClient();
                 try
                 {
-                    _logger.LogDebug("Discovering {serviceName}...", _connectionInfo.ServiceName);
+                    _logger.LogDebug("Discovering {ServiceName}...", _serviceName);
 
-                    var requestData = Encoding.UTF8.GetBytes(_connectionInfo.ServiceName);
+                    var requestData = Encoding.UTF8.GetBytes(_serviceName);
                     var broadcastEp = new IPEndPoint(IPAddress.Broadcast, _discoveryPort);
 
                     await udpClient.SendAsync(requestData, requestData.Length, broadcastEp);
@@ -78,30 +89,28 @@ public class DiscoverClientConnection(IServiceProvider serviceProvider, Connecti
                     var response = await ReceiveUdpResponseAsync(udpClient, token);
                     if (response != null)
                     {
-                        _connectionInfo = _connectionInfo with { Destination = response, Direct = false };
-                        _tunnelClientConnection = new MultiplexingClientConnection(serviceProvider, _connectionInfo);
+                        _tunnelClientConnection = new MultiplexingClientConnection(
+                            _multiplexingLogger, _serviceName, _listenPort, response);
                         _tunnelClientConnection.StartListening();
 
-                        _destinationMonitor = DestinationMonitorRegistry.GetOrCreateMonitor(_connectionInfo.Destination);
+                        _destinationMonitor = _monitorRegistry.GetOrCreateMonitor(response);
                         _destinationMonitor.RegisterClient(this);
 
-                        break; // Exit the discovery loop once a connection is established
+                        break;
                     }
-                    else
-                    {
-                        _logger.LogDebug("No response for {serviceName}. Retrying...", _connectionInfo.ServiceName);
-                        await Task.Delay(TimeSpan.FromSeconds(10), token);
-                    }
+
+                    _logger.LogDebug("No response for {ServiceName}. Retrying...", _serviceName);
+                    await Task.Delay(TimeSpan.FromSeconds(10), token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error discovering or connecting to {serviceName}. Retrying...",
-                        _connectionInfo.ServiceName);
+                    _logger.LogError(ex, "Error discovering or connecting to {ServiceName}. Retrying...",
+                        _serviceName);
                     await Task.Delay(TimeSpan.FromSeconds(10), token);
-                }
-                finally
-                {
-                    udpClient.Dispose();
                 }
             }
         }
@@ -114,7 +123,7 @@ public class DiscoverClientConnection(IServiceProvider serviceProvider, Connecti
         }
     }
 
-    private async Task<IPEndPoint?> ReceiveUdpResponseAsync(UdpClient udpClient, CancellationToken token)
+    private static async Task<IPEndPoint?> ReceiveUdpResponseAsync(UdpClient udpClient, CancellationToken token)
     {
         try
         {
@@ -131,19 +140,28 @@ public class DiscoverClientConnection(IServiceProvider serviceProvider, Connecti
 
             return null;
         }
-        finally
+        catch (OperationCanceledException)
         {
-            udpClient.Dispose();
+            return null;
         }
+    }
 
+    public async ValueTask DisposeAsync()
+    {
+        await _cts.CancelAsync();
+        if (_tunnelClientConnection != null)
+        {
+            await _tunnelClientConnection.DisposeAsync();
+        }
+        _tunnelClientConnection = null;
+        _cts.Dispose();
     }
 
     public void Dispose()
     {
-        _udpClient?.Dispose();
-        _cts.Dispose();
+        _cts.Cancel();
         _tunnelClientConnection?.Dispose();
         _tunnelClientConnection = null;
-
+        _cts.Dispose();
     }
 }

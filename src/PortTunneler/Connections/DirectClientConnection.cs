@@ -1,125 +1,113 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Sockets;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace PortTunneler.Connections;
 
-public sealed class DirectClientConnection(IServiceProvider serviceProvider, ConnectionInfo connectionInfo)
+public sealed class DirectClientConnection(ILogger<DirectClientConnection> logger, DirectTunnelConfig tunnelConfig)
     : IClientConnection
 {
-    private readonly ILogger<DirectClientConnection> _logger =
-        serviceProvider.GetRequiredService<ILogger<DirectClientConnection>>();
-
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
+    private readonly CancellationTokenSource _cts = new();
     private Socket? _listener;
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Direct Client Connection is stopping.");
+        logger.LogInformation("Direct Client Connection is stopping.");
+        await _cts.CancelAsync();
         _listener?.Close();
-        return Task.CompletedTask;
     }
 
     public void StartListening()
     {
-        if (_listener == null)
-        {
-            _listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            _listener.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            _listener.Bind(new IPEndPoint(IPAddress.Any, connectionInfo.LocalPort));
-            _listener.Listen(100); // Maximum backlog of pending connections
-            _logger.LogInformation("Listening on port {Port} for client connections for service {ServiceName}...",
-                connectionInfo.LocalPort, connectionInfo.ServiceName);
-            _ = AcceptClientsAsync(_listener);
-        }
+        if (_listener != null) return;
+
+        _listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        _listener.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+        _listener.Bind(new IPEndPoint(IPAddress.Any, tunnelConfig.ListenPort));
+        _listener.Listen(100);
+        logger.LogInformation("Listening on port {Port} for direct connections to {Target} for service {ServiceName}...",
+            tunnelConfig.ListenPort, tunnelConfig.TargetAddress, tunnelConfig.Name);
+        _ = AcceptClientsAsync().ContinueWith(
+            t => logger.LogCritical(t.Exception, "Unhandled exception in AcceptClientsAsync."),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
-    private async Task AcceptClientsAsync(Socket listener)
+    private async Task AcceptClientsAsync()
     {
-        while (listener.IsBound)
+        var token = _cts.Token;
+        while (!token.IsCancellationRequested)
         {
             try
             {
-                var clientSocket = await listener.AcceptAsync();
-                _logger.LogDebug("Accepted a connection on port {Port}. Service: {ServiceName}",
-                    ((IPEndPoint)listener.LocalEndPoint).Port, connectionInfo.ServiceName);
-                _ = HandleClientAsync(clientSocket); // Handle client in a separate task
+                var clientSocket = await _listener!.AcceptAsync(token);
+                logger.LogDebug("Accepted a connection on port {Port}. Service: {ServiceName}",
+                    tunnelConfig.ListenPort, tunnelConfig.Name);
+                _ = HandleClientAsync(clientSocket, token).ContinueWith(
+                    t => logger.LogCritical(t.Exception, "Unhandled exception in HandleClientAsync."),
+                    TaskContinuationOptions.OnlyOnFaulted);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
             }
             catch (SocketException ex)
             {
-                _logger.LogError(ex, "SocketException in AcceptClientsAsync.");
+                logger.LogError(ex, "SocketException in AcceptClientsAsync.");
             }
         }
     }
 
-    private async Task HandleClientAsync(Socket clientSocket)
+    private async Task HandleClientAsync(Socket clientSocket, CancellationToken ct)
     {
+        var destination = IpEndpointExtensions.ParseEndpointOrThrow(tunnelConfig.TargetAddress, "TargetAddress");
         using var serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
         try
         {
-            // Connect to the destination
-            await serverSocket.ConnectAsync(connectionInfo.Destination!);
-            _logger.LogDebug("Client connected: {ClientEndpoint} -> {ServerEndpoint}",
-                clientSocket.RemoteEndPoint, $"{connectionInfo.Destination.Address}:{connectionInfo.Destination.Port}");
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            connectCts.CancelAfter(ConnectTimeout);
+            await serverSocket.ConnectAsync(destination, connectCts.Token);
 
-            var clientStream = new NetworkStream(clientSocket, ownsSocket: false);
-            var serverStream = new NetworkStream(serverSocket, ownsSocket: false);
+            logger.LogDebug("Client connected: {ClientEndpoint} -> {ServerEndpoint}",
+                clientSocket.RemoteEndPoint, destination);
 
-            // Start forwarding data
-            var clientToServerTask = ForwardDataAsync(clientStream, serverStream, "Client to Server");
-            var serverToClientTask = ForwardDataAsync(serverStream, clientStream, "Server to Client");
+            await using var clientStream = new NetworkStream(clientSocket, ownsSocket: true);
+            await using var serverStream = new NetworkStream(serverSocket, ownsSocket: true);
+
+            var clientToServerTask = TcpForwarder.ForwardAsync(clientStream, serverStream, logger, "Client to Server", ct);
+            var serverToClientTask = TcpForwarder.ForwardAsync(serverStream, clientStream, logger, "Server to Client", ct);
             await Task.WhenAll(clientToServerTask, serverToClientTask);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            logger.LogDebug("HandleClientAsync canceled.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in HandleClientAsync.");
-        }
-        finally
-        {
-            _logger.LogInformation("Closing client and server connections.");
-            clientSocket.Close();
-            serverSocket.Close();
+            logger.LogError(ex, "Error in HandleClientAsync.");
         }
     }
 
-    private async Task ForwardDataAsync(NetworkStream inputStream, NetworkStream outputStream, string direction)
+    public async ValueTask DisposeAsync()
     {
-        var buffer = new byte[8192];
-
-        try
-        {
-            int bytesRead;
-            while ((bytesRead = await inputStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-            {
-                await outputStream.WriteAsync(buffer, 0, bytesRead);
-                await outputStream.FlushAsync();
-                _logger.LogDebug("{Direction}: Forwarded {BytesRead} bytes.", direction, bytesRead);
-            }
-        }
-        catch (IOException ioEx)
-        {
-            _logger.LogDebug(ioEx, "{Direction}: IO Exception (expected, often safe to ignore): {Message}",
-                direction, ioEx.Message);
-        }
-        catch (ObjectDisposedException)
-        {
-            _logger.LogDebug("{Direction}: Connection closed.", direction);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in {Direction}", direction);
-        }
-        finally
-        {
-            _logger.LogDebug("Closing streams in {Direction}.", direction);
-        }
+        await _cts.CancelAsync();
+        _listener?.Close();
+        _listener?.Dispose();
+        _listener = null;
+        _cts.Dispose();
     }
 
     public void Dispose()
     {
+        _cts.Cancel();
         _listener?.Close();
         _listener?.Dispose();
         _listener = null;
+        _cts.Dispose();
     }
 }

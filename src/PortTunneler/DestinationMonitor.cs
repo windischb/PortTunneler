@@ -1,38 +1,37 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using Microsoft.Extensions.Logging;
-using PortTunneler.Connections;
 
 namespace PortTunneler;
 
 public class DestinationMonitor(IPEndPoint destination, ILogger<DestinationMonitor> logger)
 {
-    public readonly List<DiscoverClientConnection> RegisteredClients = new();
-    private readonly CancellationTokenSource _cts = new();
-    private bool _isRunning;
+    private readonly List<IMonitorableClient> _registeredClients = [];
+    private readonly Lock _lock = new();
+    private int _isRunning;
+    private CancellationTokenSource? _cts;
     public Action<IPEndPoint>? NoClientsLeft;
     private Socket? _socket;
 
-    public void RegisterClient(DiscoverClientConnection client)
+    public void RegisterClient(IMonitorableClient client)
     {
-        lock (RegisteredClients)
+        lock (_lock)
         {
-            if (!RegisteredClients.Contains(client))
+            if (!_registeredClients.Contains(client))
             {
-                RegisteredClients.Add(client);
+                _registeredClients.Add(client);
             }
         }
 
         StartMonitoring();
     }
 
-    public void UnregisterClient(DiscoverClientConnection client)
+    public void UnregisterClient(IMonitorableClient client)
     {
-        lock (RegisteredClients)
+        lock (_lock)
         {
-            RegisteredClients.Remove(client);
-            if (RegisteredClients.Count == 0)
+            _registeredClients.Remove(client);
+            if (_registeredClients.Count == 0)
             {
                 StopMonitoring();
                 NoClientsLeft?.Invoke(destination);
@@ -42,17 +41,21 @@ public class DestinationMonitor(IPEndPoint destination, ILogger<DestinationMonit
 
     private void StartMonitoring()
     {
-        if (_isRunning)
+        if (Interlocked.CompareExchange(ref _isRunning, 1, 0) != 0)
             return;
 
-        _isRunning = true;
-        _ = MonitorDestinationAsync(_cts.Token);
+        _cts = new CancellationTokenSource();
+        _ = MonitorDestinationAsync(_cts.Token).ContinueWith(
+            t => logger.LogCritical(t.Exception, "Unhandled exception in MonitorDestinationAsync."),
+            TaskContinuationOptions.OnlyOnFaulted);
     }
 
     private void StopMonitoring()
     {
-        _isRunning = false;
-        _cts.Cancel();
+        Interlocked.Exchange(ref _isRunning, 0);
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
         _socket?.Close();
         _socket?.Dispose();
         _socket = null;
@@ -71,61 +74,72 @@ public class DestinationMonitor(IPEndPoint destination, ILogger<DestinationMonit
             {
                 try
                 {
-                    // Send "ping" message
-                    var serviceNameBuffer = "ping"u8.ToArray();
-                    var serviceNameLengthBuffer = BitConverter.GetBytes(serviceNameBuffer.Length);
-                    await networkStream.WriteAsync(serviceNameLengthBuffer, token);
-                    await networkStream.WriteAsync(serviceNameBuffer, token);
+                    await TunnelProtocol.WriteTagAsync(networkStream, "ping", token);
                     await networkStream.FlushAsync(token);
 
-                    // Read "pong" response
-                    var buffer = new byte[4];
-                    var bytesRead = await networkStream.ReadAsync(buffer, token);
-                    if (bytesRead == 0)
+                    var pongMessage = await TunnelProtocol.ReadPongAsync(networkStream, token);
+                    if (pongMessage == null)
                     {
                         logger.LogWarning("Connection to {Destination} was closed by the remote host.", destination);
-                        await NotifyClients();
+                        await NotifyClientsAsync();
                         break;
                     }
 
-                    var pongMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                     if (pongMessage != "pong")
                     {
                         logger.LogWarning("Unexpected heartbeat response: {PongMessage}", pongMessage);
-                        await NotifyClients();
+                        await NotifyClientsAsync();
                         break;
                     }
 
                     logger.LogDebug("Heartbeat successful: {Destination}", destination);
-
-                    // Delay before the next heartbeat
                     await Task.Delay(TimeSpan.FromSeconds(5), token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
                 }
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Error during heartbeat for {Destination}. Notifying clients...", destination);
-                    await NotifyClients();
+                    await NotifyClientsAsync();
                     break;
                 }
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Expected on shutdown
+        }
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to connect to {Destination}. Notifying clients...", destination);
-            await NotifyClients();
+            await NotifyClientsAsync();
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isRunning, 0);
         }
     }
 
-    private Task NotifyClients()
+    private async Task NotifyClientsAsync()
     {
-        lock (RegisteredClients)
+        List<IMonitorableClient> snapshot;
+        lock (_lock)
         {
-            foreach (var client in RegisteredClients.ToList())
-            {
-                client.NotifyDestinationUnreachable(destination).GetAwaiter().GetResult();
-            }
+            snapshot = [.. _registeredClients];
         }
 
-        return Task.CompletedTask;
+        foreach (var client in snapshot)
+        {
+            try
+            {
+                await client.NotifyDestinationUnreachable(destination);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error notifying client about unreachable destination {Destination}.", destination);
+            }
+        }
     }
 }

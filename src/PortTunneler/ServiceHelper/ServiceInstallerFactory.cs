@@ -1,26 +1,12 @@
-﻿using System.Runtime.InteropServices;
-
 namespace PortTunneler.ServiceHelper;
 
 public static class ServiceInstallerFactory
 {
-    public static IServiceInstaller Create()
+    public static IServiceInstaller Create() => true switch
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return new WindowsServiceInstaller();
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            return new LinuxServiceInstaller(); // To be implemented
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            return new MacServiceInstaller(); // To be implemented
-        }
-        else
-        {
-            throw new PlatformNotSupportedException("This platform is not supported");
-        }
-    }
+        _ when OperatingSystem.IsWindows() => new WindowsServiceInstaller(),
+        _ when OperatingSystem.IsLinux() => new LinuxServiceInstaller(),
+        _ when OperatingSystem.IsMacOS() => new MacServiceInstaller(),
+        _ => throw new PlatformNotSupportedException("This platform is not supported")
+    };
 }

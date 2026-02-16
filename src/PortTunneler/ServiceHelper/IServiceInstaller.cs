@@ -1,4 +1,4 @@
-﻿namespace PortTunneler.ServiceHelper;
+namespace PortTunneler.ServiceHelper;
 
 public interface IServiceInstaller
 {
@@ -9,6 +9,6 @@ public interface IServiceInstaller
     void StartService(string serviceName);
     void StopService(string serviceName);
     ServiceState GetServiceStatus(string serviceName);
-    ServiceInfo GetServiceByExecutablePath(string executablePath);
-    ServiceInfo GetServiceByName(string serviceName);
+    ServiceInfo? GetServiceByExecutablePath(string executablePath);
+    ServiceInfo? GetServiceByName(string serviceName);
 }

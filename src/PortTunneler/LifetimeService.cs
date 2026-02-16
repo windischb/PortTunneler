@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace PortTunneler;
@@ -7,10 +7,10 @@ public class LifetimeService : IHostedService
 {
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<LifetimeService> _logger;
-    private readonly Config _config;
+    private readonly PortTunnelerConfig _config;
 
     public LifetimeService(IHostApplicationLifetime appLifetime, ILogger<LifetimeService> logger,
-        Config config)
+        PortTunnelerConfig config)
     {
         _appLifetime = appLifetime;
         _logger = logger;
@@ -22,31 +22,27 @@ public class LifetimeService : IHostedService
         _appLifetime.ApplicationStopping.Register(OnStopping);
         _appLifetime.ApplicationStopped.Register(OnStopped);
         _appLifetime.ApplicationStarted.Register(OnStarted);
-         return Task.CompletedTask;
+        return Task.CompletedTask;
     }
 
     private void OnStarted()
     {
-        Program._levelSwitch.MinimumLevel = _config.Logging.LogLevel;
+        Program.LevelSwitch.MinimumLevel = _config.Logging.LogLevel;
     }
 
     private void OnStopping()
     {
         _logger.LogInformation("Application stopping...");
-        // Add any additional cleanup or resource release here
     }
 
     private void OnStopped()
     {
         _logger.LogInformation("Application stopped.");
-        // Add any additional cleanup or resource release here
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Application is stopping...");
-        // Ensure the application stops gracefully
-        Environment.Exit(0);
         return Task.CompletedTask;
     }
 }
