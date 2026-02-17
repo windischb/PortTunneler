@@ -122,7 +122,7 @@ internal sealed class Program
             // Validate config before starting
             var logger = host.Services.GetRequiredService<ILogger<Program>>();
             ConfigValidator.Validate(config, logger);
-            LogStartupSummary(config, logger);
+            LogStartupSummary(config);
 
             await host.RunAsync(cts.Token);
             return 0;
@@ -154,16 +154,17 @@ internal sealed class Program
         return config;
     }
 
-    private static void LogStartupSummary(PortTunnelerConfig config, ILogger logger)
+    private static void LogStartupSummary(PortTunnelerConfig config)
     {
-        logger.LogInformation("Command pipe: {PipeName}", CommandPipeService.GetPipeName());
+        Console.WriteLine($"Command pipe: {CommandPipeService.GetPipeName()}");
+
         if (!config.Tunnels.Enabled)
         {
-            logger.LogInformation("Tunnels disabled.");
+            Console.WriteLine("Tunnels: disabled");
         }
         else if (config.Tunnels.Services.Count > 0)
         {
-            logger.LogInformation("Configured {Count} tunnel(s):", config.Tunnels.Services.Count);
+            Console.WriteLine($"Tunnels ({config.Tunnels.Services.Count}):");
             foreach (var tunnel in config.Tunnels.Services)
             {
                 var mode = tunnel switch
@@ -173,23 +174,24 @@ internal sealed class Program
                     DirectTunnelConfig d => $"Direct -> {d.TargetAddress}",
                     _ => "Unknown"
                 };
-                logger.LogInformation("  {Name} on port {Port} ({Mode})", tunnel.Name, tunnel.ListenPort, mode);
+                Console.WriteLine($"  {tunnel.Name} on port {tunnel.ListenPort} ({mode})");
             }
         }
 
         if (config.Server is { Enabled: false })
         {
-            logger.LogInformation("Server disabled.");
+            Console.WriteLine("Server: disabled");
         }
         else if (config.Server != null)
         {
-            logger.LogInformation("Server listening on port {Port}, discovery on port {DiscoveryPort}",
-                config.Server.ListenPort, config.Server.DiscoveryPort);
+            Console.WriteLine($"Server listening on port {config.Server.ListenPort}, discovery on port {config.Server.DiscoveryPort}");
             foreach (var svc in config.Server.Services)
             {
-                logger.LogInformation("  Offering {Name} -> {Target}", svc.Name, svc.TargetAddress);
+                Console.WriteLine($"  {svc.Name} -> {svc.TargetAddress}");
             }
         }
+
+        Console.WriteLine("PortTunneler started.");
     }
 
     private static int InstallService(string? instanceName)
