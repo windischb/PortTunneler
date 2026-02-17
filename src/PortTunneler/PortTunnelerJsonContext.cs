@@ -14,5 +14,5 @@ namespace PortTunneler;
     PropertyNameCaseInsensitive = true,
     ReadCommentHandling = JsonCommentHandling.Skip,
     AllowTrailingCommas = true,
-    Converters = [typeof(TunnelConfigJsonConverter)])]
+    Converters = [typeof(JsonStringEnumConverter<Microsoft.Extensions.Logging.LogLevel>), typeof(TunnelConfigJsonConverter)])]
 public partial class PortTunnelerJsonContext : JsonSerializerContext;
