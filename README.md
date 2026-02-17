@@ -24,7 +24,6 @@ Download the latest release from [GitHub Releases](../../releases). Binaries are
 | Linux ARM64 | `PortTunneler-linux-arm64` |
 | Windows x64 | `PortTunneler-win-x64.exe` |
 | Windows ARM64 | `PortTunneler-win-arm64.exe` |
-| macOS x64 | `PortTunneler-macos-x64` |
 | macOS ARM64 | `PortTunneler-macos-arm64` |
 
 On Linux/macOS, make the binary executable after downloading:

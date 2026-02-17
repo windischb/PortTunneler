@@ -69,9 +69,6 @@ jobs:
           - os: windows-11-arm
             rid: win-arm64
             artifact: PortTunneler-win-arm64.exe
-          - os: macos-15-large
-            rid: osx-x64
-            artifact: PortTunneler-macos-x64
           - os: macos-latest
             rid: osx-arm64
             artifact: PortTunneler-macos-arm64
@@ -137,6 +134,5 @@ jobs:
           artifacts/PortTunneler-linux-arm64/PortTunneler-linux-arm64
           artifacts/PortTunneler-win-x64.exe/PortTunneler-win-x64.exe
           artifacts/PortTunneler-win-arm64.exe/PortTunneler-win-arm64.exe
-          artifacts/PortTunneler-macos-x64/PortTunneler-macos-x64
           artifacts/PortTunneler-macos-arm64/PortTunneler-macos-arm64
           --repo ${{ github.repository }}
