@@ -1,9 +1,9 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.ServiceProcess;
 
 namespace PortTunneler.ServiceHelper;
 
-public class WindowsServiceInstaller : IServiceInstaller
+public sealed class WindowsServiceInstaller : IServiceInstaller
 {
     public ServiceInfo InstallAndStart(string serviceName, string displayName, string fileName, string arguments)
     {
@@ -14,38 +14,35 @@ public class WindowsServiceInstaller : IServiceInstaller
 
     public ServiceInfo Install(string serviceName, string displayName, string fileName, string arguments)
     {
-        using (SafeServiceHandle scm = OpenSCManager(ScmAccessRights.AllAccess))
+        using SafeServiceHandle scm = OpenSCManager(ScmAccessRights.Connect | ScmAccessRights.CreateService);
+        using SafeServiceHandle service = OpenServiceHandle(scm, serviceName, ServiceAccessRights.AllAccess);
+        if (service.IsInvalid)
         {
-            SafeServiceHandle service = OpenServiceHandle(scm, serviceName, ServiceAccessRights.AllAccess);
-            if (service.IsInvalid)
+            string fullPath = string.IsNullOrWhiteSpace(arguments) ? fileName : $"{fileName} {arguments}";
+            IntPtr serviceHandle = NativeMethods.CreateService(scm.DangerousGetHandle(), serviceName, displayName, ServiceAccessRights.AllAccess, NativeMethods.SERVICE_WIN32_OWN_PROCESS, ServiceBootFlag.AutoStart, ServiceError.Normal, fullPath, null, IntPtr.Zero, null, null, null);
+            if (serviceHandle == IntPtr.Zero)
             {
-                string fullPath = string.IsNullOrWhiteSpace(arguments) ? fileName : $"{fileName} {arguments}";
-                IntPtr serviceHandle = NativeMethods.CreateService(scm.DangerousGetHandle(), serviceName, displayName, ServiceAccessRights.AllAccess, NativeMethods.SERVICE_WIN32_OWN_PROCESS, ServiceBootFlag.AutoStart, ServiceError.Normal, fullPath, null, IntPtr.Zero, null, null, null);
-                if (serviceHandle == IntPtr.Zero)
-                    throw new ApplicationException("Failed to install service.");
-
-                service = new SafeServiceHandle(serviceHandle);
+                int error = Marshal.GetLastWin32Error();
+                throw new ApplicationException($"Failed to install service. Win32 error: {error}");
             }
 
-            return new ServiceInfo(this, serviceName, displayName, fileName);
+            using var createdService = new SafeServiceHandle(serviceHandle);
         }
+
+        return new ServiceInfo(this, serviceName, displayName, fileName);
     }
 
 
     public void Uninstall(string serviceName)
     {
-        using (SafeServiceHandle scm = OpenSCManager(ScmAccessRights.AllAccess))
-        {
-            using (SafeServiceHandle service = OpenServiceHandle(scm, serviceName, ServiceAccessRights.AllAccess))
-            {
-                if (service.IsInvalid)
-                    throw new ApplicationException("Service not installed.");
+        using SafeServiceHandle scm = OpenSCManager(ScmAccessRights.Connect);
+        using SafeServiceHandle service = OpenServiceHandle(scm, serviceName, ServiceAccessRights.AllAccess);
+        if (service.IsInvalid)
+            throw new ApplicationException("Service not installed.");
 
-                StopService(service.DangerousGetHandle());
-                if (!NativeMethods.DeleteService(service.DangerousGetHandle()))
-                    throw new ApplicationException("Could not delete service " + Marshal.GetLastWin32Error());
-            }
-        }
+        StopService(service.DangerousGetHandle());
+        if (!NativeMethods.DeleteService(service.DangerousGetHandle()))
+            throw new ApplicationException("Could not delete service " + Marshal.GetLastWin32Error());
     }
 
     public bool ServiceIsInstalled(string serviceName)
@@ -55,63 +52,53 @@ public class WindowsServiceInstaller : IServiceInstaller
 
     public void StartService(string serviceName)
     {
-        using (ServiceController service = new ServiceController(serviceName))
+        using ServiceController service = new ServiceController(serviceName);
+        if (service.Status == ServiceControllerStatus.Stopped)
         {
-            if (service.Status == ServiceControllerStatus.Stopped)
-            {
-                service.Start();
-                service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
-            }
+            service.Start();
+            service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
         }
     }
 
     public void StopService(string serviceName)
     {
-        using (ServiceController service = new ServiceController(serviceName))
+        using ServiceController service = new ServiceController(serviceName);
+        if (service.Status == ServiceControllerStatus.Running)
         {
-            if (service.Status == ServiceControllerStatus.Running)
-            {
-                service.Stop();
-                service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
-            }
+            service.Stop();
+            service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
         }
     }
 
     public ServiceState GetServiceStatus(string serviceName)
     {
-        using (ServiceController service = new ServiceController(serviceName))
+        using ServiceController service = new ServiceController(serviceName);
+        return service.Status switch
         {
-            return service.Status switch
-            {
-                ServiceControllerStatus.Running => ServiceState.Running,
-                ServiceControllerStatus.Stopped => ServiceState.Stopped,
-                ServiceControllerStatus.Paused => ServiceState.Paused,
-                ServiceControllerStatus.StartPending => ServiceState.StartPending,
-                ServiceControllerStatus.StopPending => ServiceState.StopPending,
-                _ => ServiceState.Unknown,
-            };
-        }
+            ServiceControllerStatus.Running => ServiceState.Running,
+            ServiceControllerStatus.Stopped => ServiceState.Stopped,
+            ServiceControllerStatus.Paused => ServiceState.Paused,
+            ServiceControllerStatus.StartPending => ServiceState.StartPending,
+            ServiceControllerStatus.StopPending => ServiceState.StopPending,
+            _ => ServiceState.Unknown,
+        };
     }
 
-    public ServiceInfo GetServiceByExecutablePath(string executablePath)
+    public ServiceInfo? GetServiceByExecutablePath(string executablePath)
     {
         var services = ServiceController.GetServices();
         foreach (var service in services)
         {
             try
             {
-                using (SafeServiceHandle scm = OpenSCManager(ScmAccessRights.AllAccess))
+                using SafeServiceHandle scm = OpenSCManager(ScmAccessRights.Connect | ScmAccessRights.EnumerateService);
+                using SafeServiceHandle hService = OpenServiceHandle(scm, service.ServiceName, ServiceAccessRights.QueryConfig);
+                if (!hService.IsInvalid)
                 {
-                    using (SafeServiceHandle hService = OpenServiceHandle(scm, service.ServiceName, ServiceAccessRights.QueryConfig))
+                    string servicePath = GetServiceExecutablePath(hService);
+                    if (servicePath.Equals(executablePath, StringComparison.InvariantCultureIgnoreCase))
                     {
-                        if (!hService.IsInvalid)
-                        {
-                            string servicePath = GetServiceExecutablePath(hService);
-                            if (servicePath.Equals(executablePath, StringComparison.InvariantCultureIgnoreCase))
-                            {
-                                return new ServiceInfo(this, service.ServiceName, service.DisplayName, servicePath);
-                            }
-                        }
+                        return new ServiceInfo(this, service.ServiceName, service.DisplayName, servicePath);
                     }
                 }
             }
@@ -123,21 +110,17 @@ public class WindowsServiceInstaller : IServiceInstaller
         return null;
     }
 
-    public ServiceInfo GetServiceByName(string serviceName)
+    public ServiceInfo? GetServiceByName(string serviceName)
     {
         var services = ServiceController.GetServices().FirstOrDefault(s => s.ServiceName.Equals(serviceName, StringComparison.OrdinalIgnoreCase));
         if (services != null)
         {
-            using (SafeServiceHandle scm = OpenSCManager(ScmAccessRights.AllAccess))
+            using SafeServiceHandle scm = OpenSCManager(ScmAccessRights.Connect | ScmAccessRights.EnumerateService);
+            using SafeServiceHandle hService = OpenServiceHandle(scm, serviceName, ServiceAccessRights.QueryConfig);
+            if (!hService.IsInvalid)
             {
-                using (SafeServiceHandle hService = OpenServiceHandle(scm, serviceName, ServiceAccessRights.QueryConfig))
-                {
-                    if (!hService.IsInvalid)
-                    {
-                        string servicePath = GetServiceExecutablePath(hService);
-                        return new ServiceInfo(this, serviceName, services.DisplayName, servicePath);
-                    }
-                }
+                string servicePath = GetServiceExecutablePath(hService);
+                return new ServiceInfo(this, serviceName, services.DisplayName, servicePath);
             }
         }
         return null;

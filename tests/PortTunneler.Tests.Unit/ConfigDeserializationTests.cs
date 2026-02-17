@@ -4,12 +4,7 @@ namespace PortTunneler.Tests.Unit;
 
 public class ConfigDeserializationTests
 {
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true
-    };
+    private static readonly JsonSerializerOptions Options = PortTunnelerJsonContext.Default.Options;
 
     [Fact]
     public void Deserialize_MinimalConfig_DefaultsToDiscover()

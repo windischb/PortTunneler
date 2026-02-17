@@ -1,39 +1,24 @@
-﻿namespace PortTunneler.ServiceHelper;
+namespace PortTunneler.ServiceHelper;
 
-public class ServiceInfo
+public sealed record ServiceInfo(IServiceInstaller Installer, string ServiceName, string DisplayName, string ExecutablePath)
 {
-    private readonly IServiceInstaller _installer;
-    private readonly string _serviceName;
-
-    public string ServiceName => _serviceName;
-    public string DisplayName { get; }
-    public string ExecutablePath { get; }
-
-    public ServiceInfo(IServiceInstaller installer, string serviceName, string displayName, string executablePath)
-    {
-        _installer = installer;
-        _serviceName = serviceName;
-        DisplayName = displayName;
-        ExecutablePath = executablePath;
-    }
-
     public void Start()
     {
-        _installer.StartService(_serviceName);
+        Installer.StartService(ServiceName);
     }
 
     public void Stop()
     {
-        _installer.StopService(_serviceName);
+        Installer.StopService(ServiceName);
     }
 
     public void Uninstall()
     {
-        _installer.Uninstall(_serviceName);
+        Installer.Uninstall(ServiceName);
     }
 
     public ServiceState GetStatus()
     {
-        return _installer.GetServiceStatus(_serviceName);
+        return Installer.GetServiceStatus(ServiceName);
     }
 }

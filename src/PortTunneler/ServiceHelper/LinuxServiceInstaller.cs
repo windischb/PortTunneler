@@ -1,8 +1,8 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 
 namespace PortTunneler.ServiceHelper;
 
-public class LinuxServiceInstaller : IServiceInstaller
+public sealed class LinuxServiceInstaller : IServiceInstaller
 {
     private const string SystemdServicePath = "/etc/systemd/system";
 
@@ -16,6 +16,7 @@ public class LinuxServiceInstaller : IServiceInstaller
     public ServiceInfo Install(string serviceName, string displayName, string fileName, string arguments)
     {
         CreateServiceFile(serviceName, displayName, fileName, arguments);
+        ExecuteSystemdCommand("daemon-reload");
         EnableService(serviceName);
         return new ServiceInfo(this, serviceName, displayName, fileName);
     }
@@ -24,6 +25,7 @@ public class LinuxServiceInstaller : IServiceInstaller
     {
         StopAndDisableService(serviceName);
         RemoveServiceFile(serviceName);
+        ExecuteSystemdCommand("daemon-reload");
     }
 
     public bool ServiceIsInstalled(string serviceName)
@@ -54,15 +56,14 @@ public class LinuxServiceInstaller : IServiceInstaller
         };
     }
 
-    public ServiceInfo GetServiceByExecutablePath(string executablePath)
+    public ServiceInfo? GetServiceByExecutablePath(string executablePath)
     {
         var services = Directory.GetFiles(SystemdServicePath, "*.service");
         foreach (var serviceFile in services)
         {
-            string serviceFilePath = Path.Combine(SystemdServicePath, serviceFile);
-            if (File.Exists(serviceFilePath))
+            if (File.Exists(serviceFile))
             {
-                string content = File.ReadAllText(serviceFilePath);
+                string content = File.ReadAllText(serviceFile);
                 if (content.Contains(executablePath))
                 {
                     string serviceName = Path.GetFileNameWithoutExtension(serviceFile);
@@ -73,14 +74,17 @@ public class LinuxServiceInstaller : IServiceInstaller
         return null;
     }
 
-    public ServiceInfo GetServiceByName(string serviceName)
+    public ServiceInfo? GetServiceByName(string serviceName)
     {
         var serviceFilePath = GetServiceFilePath(serviceName);
         if (File.Exists(serviceFilePath))
         {
             string content = File.ReadAllText(serviceFilePath);
-            string executablePath = ParseExecutablePath(content);
-            return new ServiceInfo(this, serviceName, serviceName, executablePath);
+            string? executablePath = ParseExecutablePath(content);
+            if (executablePath != null)
+            {
+                return new ServiceInfo(this, serviceName, serviceName, executablePath);
+            }
         }
         return null;
     }
@@ -88,33 +92,29 @@ public class LinuxServiceInstaller : IServiceInstaller
     private void CreateServiceFile(string serviceName, string displayName, string fileName, string arguments)
     {
         string execStart = string.IsNullOrWhiteSpace(arguments) ? fileName : $"{fileName} {arguments}";
+        string workingDirectory = Path.GetDirectoryName(fileName) ?? "/";
 
-        var serviceFileContent = $@"
-[Unit]
-Description={displayName}
+        var serviceFileContent = $"""
+            [Unit]
+            Description={displayName}
 
-[Service]
-ExecStart={execStart}
-Restart=always
-User=root
+            [Service]
+            Type=notify
+            ExecStart={execStart}
+            WorkingDirectory={workingDirectory}
+            Restart=always
+            User={Environment.UserName}
 
-[Install]
-WantedBy=multi-user.target
-";
+            [Install]
+            WantedBy=multi-user.target
+            """;
 
         File.WriteAllText(GetServiceFilePath(serviceName), serviceFileContent);
     }
 
-
     private void EnableService(string serviceName)
     {
         ExecuteSystemdCommand($"enable {serviceName}");
-    }
-
-    private void EnableAndStartService(string serviceName)
-    {
-        ExecuteSystemdCommand($"enable {serviceName}");
-        ExecuteSystemdCommand($"start {serviceName}");
     }
 
     private void StopAndDisableService(string serviceName)
@@ -137,15 +137,17 @@ WantedBy=multi-user.target
         return Path.Combine(SystemdServicePath, $"{serviceName}.service");
     }
 
-    private string ParseExecutablePath(string content)
+    private string? ParseExecutablePath(string content)
     {
         var execStartLine = content.Split('\n').FirstOrDefault(line => line.Trim().StartsWith("ExecStart"));
         if (execStartLine != null)
         {
-            var parts = execStartLine.Split('=', StringSplitOptions.RemoveEmptyEntries);
+            var parts = execStartLine.Split('=', 2, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 2)
             {
-                return parts[1].Trim();
+                var value = parts[1].Trim();
+                var tokens = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                return tokens.Length > 0 ? tokens[0] : null;
             }
         }
         return null;
@@ -153,7 +155,7 @@ WantedBy=multi-user.target
 
     private string ExecuteSystemdCommand(string command)
     {
-        var process = new Process
+        using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {

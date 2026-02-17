@@ -5,6 +5,8 @@ namespace PortTunneler;
 
 public sealed class TunnelConfigJsonConverter : JsonConverter<TunnelConfig>
 {
+    public override bool CanConvert(Type typeToConvert) => typeToConvert == typeof(TunnelConfig);
+
     public override TunnelConfig? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         using var doc = JsonDocument.ParseValue(ref reader);
@@ -22,19 +24,11 @@ public sealed class TunnelConfigJsonConverter : JsonConverter<TunnelConfig>
 
         var rawJson = root.GetRawText();
 
-        // Use a separate options instance without this converter to avoid infinite recursion
-        var innerOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true
-        };
-
         return mode.ToLowerInvariant() switch
         {
-            "discover" => JsonSerializer.Deserialize<DiscoverTunnelConfig>(rawJson, innerOptions),
-            "tunnel" => JsonSerializer.Deserialize<TunnelTunnelConfig>(rawJson, innerOptions),
-            "direct" => JsonSerializer.Deserialize<DirectTunnelConfig>(rawJson, innerOptions),
+            "discover" => JsonSerializer.Deserialize(rawJson, PortTunnelerJsonContext.Default.DiscoverTunnelConfig),
+            "tunnel" => JsonSerializer.Deserialize(rawJson, PortTunnelerJsonContext.Default.TunnelTunnelConfig),
+            "direct" => JsonSerializer.Deserialize(rawJson, PortTunnelerJsonContext.Default.DirectTunnelConfig),
             _ => throw new JsonException($"Unknown tunnel mode: '{mode}'. Expected 'Discover', 'Tunnel', or 'Direct'.")
         };
     }

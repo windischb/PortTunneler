@@ -3,42 +3,38 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PortTunneler.ServiceHelper;
-using Serilog;
-using Serilog.Core;
 
 namespace PortTunneler;
 
-internal class Program
+internal sealed class Program
 {
-    internal static readonly LoggingLevelSwitch LevelSwitch = new();
-
-    public static async Task Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         var isService = args.Contains("--run-as-service");
-        ConfigureLogging(isService);
 
         if (args.Contains("--install-service"))
         {
-            InstallService();
-            return;
+            return InstallService();
         }
 
         if (args.Contains("--uninstall-service"))
         {
-            UninstallService();
-            return;
+            return UninstallService();
         }
 
         if (args.Contains("--start-service"))
         {
-            StartService();
-            return;
+            return StartService();
         }
 
         if (args.Contains("--stop-service"))
         {
-            StopService();
-            return;
+            return StopService();
+        }
+
+        if (args.Contains("--check-config"))
+        {
+            return CheckConfig();
         }
 
         using var cts = new CancellationTokenSource();
@@ -55,7 +51,6 @@ internal class Program
             }
             else
             {
-                Log.CloseAndFlush();
                 Environment.Exit(0);
             }
         };
@@ -65,7 +60,12 @@ internal class Program
             var config = LoadConfig();
 
             var hostBuilder = Host.CreateDefaultBuilder(args)
-                .UseSerilog()
+                .ConfigureLogging(logging =>
+                {
+                    logging.ClearProviders();
+                    logging.AddConsole();
+                    logging.SetMinimumLevel(config.Logging.LogLevel);
+                })
                 .ConfigureServices((_, services) =>
                 {
                     services.AddSingleton(config);
@@ -101,27 +101,18 @@ internal class Program
             LogStartupSummary(config, logger);
 
             await host.RunAsync(cts.Token);
+            return 0;
         }
         catch (Exception ex)
         {
-            Log.Fatal(ex, "Host terminated unexpectedly");
-        }
-        finally
-        {
-            Log.CloseAndFlush();
+            Console.Error.WriteLine($"Host terminated unexpectedly: {ex}");
+            return 1;
         }
     }
 
     private static PortTunnelerConfig LoadConfig()
     {
-        var exePath = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-
-        if (string.IsNullOrEmpty(exePath))
-        {
-            exePath = AppContext.BaseDirectory;
-        }
-
-        var configPath = Path.Combine(exePath, "config.json");
+        var configPath = Path.Combine(AppContext.BaseDirectory, "config.json");
 
         if (!File.Exists(configPath))
         {
@@ -129,15 +120,7 @@ internal class Program
         }
 
         var json = File.ReadAllText(configPath);
-        var options = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true
-        };
-
-        // Handle default mode: tunnels without "Mode" field should become DiscoverTunnelConfig
-        var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, options);
+        var config = JsonSerializer.Deserialize(json, PortTunnelerJsonContext.Default.PortTunnelerConfig);
 
         if (config == null)
         {
@@ -147,7 +130,7 @@ internal class Program
         return config;
     }
 
-    private static void LogStartupSummary(PortTunnelerConfig config, Microsoft.Extensions.Logging.ILogger logger)
+    private static void LogStartupSummary(PortTunnelerConfig config, ILogger logger)
     {
         if (config.Tunnels.Count > 0)
         {
@@ -176,86 +159,121 @@ internal class Program
         }
     }
 
-    private static void ConfigureLogging(bool isService)
+    private static int InstallService()
     {
-        LevelSwitch.MinimumLevel = Serilog.Events.LogEventLevel.Information;
-
-        var logConfig = new LoggerConfiguration()
-            .MinimumLevel.ControlledBy(LevelSwitch)
-            .WriteTo.Console();
-
-        if (isService)
+        try
         {
-            logConfig = logConfig.WriteTo.File("logs/porttunneler-.txt", rollingInterval: RollingInterval.Day);
+            var serviceInstaller = ServiceInstallerFactory.Create();
+            const string serviceName = "PortTunneler";
+            const string displayName = "PortTunneler Service";
+            var fileName = Environment.ProcessPath
+                           ?? throw new InvalidOperationException("Cannot determine executable path.");
+            const string arguments = "--run-as-service";
+
+            var serviceInfo = serviceInstaller.Install(serviceName, displayName, fileName, arguments);
+            Console.WriteLine($"Service {serviceInfo.ServiceName} installed successfully.");
+            return 0;
         }
-
-        Log.Logger = logConfig.CreateLogger();
-    }
-
-    private static void InstallService()
-    {
-        var serviceInstaller = ServiceInstallerFactory.Create();
-        const string serviceName = "PortTunneler";
-        const string displayName = "PortTunneler Service";
-        var fileName = Environment.ProcessPath
-                       ?? throw new InvalidOperationException("Cannot determine executable path.");
-        const string arguments = "--run-as-service";
-
-        var serviceInfo = serviceInstaller.Install(serviceName, displayName, fileName, arguments);
-        Console.WriteLine($"Service {serviceInfo.ServiceName} installed successfully.");
-    }
-
-    private static void UninstallService()
-    {
-        var serviceInstaller = ServiceInstallerFactory.Create();
-        var fileName = Environment.ProcessPath
-                       ?? throw new InvalidOperationException("Cannot determine executable path.");
-
-        var serviceInfo = serviceInstaller.GetServiceByExecutablePath(fileName);
-        if (serviceInfo != null)
+        catch (Exception ex)
         {
-            serviceInfo.Uninstall();
-            Console.WriteLine($"Service {serviceInfo.ServiceName} uninstalled successfully.");
-        }
-        else
-        {
-            Console.WriteLine("Service not found.");
+            Console.Error.WriteLine($"Failed to install service: {ex.Message}");
+            return 1;
         }
     }
 
-    private static void StartService()
+    private static int UninstallService()
     {
-        var serviceInstaller = ServiceInstallerFactory.Create();
-        var fileName = Environment.ProcessPath
-                       ?? throw new InvalidOperationException("Cannot determine executable path.");
+        try
+        {
+            var serviceInstaller = ServiceInstallerFactory.Create();
+            var fileName = Environment.ProcessPath
+                           ?? throw new InvalidOperationException("Cannot determine executable path.");
 
-        var serviceInfo = serviceInstaller.GetServiceByExecutablePath(fileName);
-        if (serviceInfo != null)
-        {
-            serviceInfo.Start();
-            Console.WriteLine($"Service {serviceInfo.ServiceName} started successfully.");
+            var serviceInfo = serviceInstaller.GetServiceByExecutablePath(fileName);
+            if (serviceInfo != null)
+            {
+                serviceInfo.Uninstall();
+                Console.WriteLine($"Service {serviceInfo.ServiceName} uninstalled successfully.");
+                return 0;
+            }
+
+            Console.Error.WriteLine("Service not found.");
+            return 1;
         }
-        else
+        catch (Exception ex)
         {
-            Console.WriteLine("Service not found.");
+            Console.Error.WriteLine($"Failed to uninstall service: {ex.Message}");
+            return 1;
         }
     }
 
-    private static void StopService()
+    private static int StartService()
     {
-        var serviceInstaller = ServiceInstallerFactory.Create();
-        var fileName = Environment.ProcessPath
-                       ?? throw new InvalidOperationException("Cannot determine executable path.");
+        try
+        {
+            var serviceInstaller = ServiceInstallerFactory.Create();
+            var fileName = Environment.ProcessPath
+                           ?? throw new InvalidOperationException("Cannot determine executable path.");
 
-        var serviceInfo = serviceInstaller.GetServiceByExecutablePath(fileName);
-        if (serviceInfo != null)
-        {
-            serviceInfo.Stop();
-            Console.WriteLine($"Service {serviceInfo.ServiceName} stopped successfully.");
+            var serviceInfo = serviceInstaller.GetServiceByExecutablePath(fileName);
+            if (serviceInfo != null)
+            {
+                serviceInfo.Start();
+                Console.WriteLine($"Service {serviceInfo.ServiceName} started successfully.");
+                return 0;
+            }
+
+            Console.Error.WriteLine("Service not found.");
+            return 1;
         }
-        else
+        catch (Exception ex)
         {
-            Console.WriteLine("Service not found.");
+            Console.Error.WriteLine($"Failed to start service: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static int CheckConfig()
+    {
+        try
+        {
+            var config = LoadConfig();
+            using var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+            var logger = loggerFactory.CreateLogger<Program>();
+            ConfigValidator.Validate(config, logger);
+            Console.WriteLine("Configuration is valid.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Configuration error: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static int StopService()
+    {
+        try
+        {
+            var serviceInstaller = ServiceInstallerFactory.Create();
+            var fileName = Environment.ProcessPath
+                           ?? throw new InvalidOperationException("Cannot determine executable path.");
+
+            var serviceInfo = serviceInstaller.GetServiceByExecutablePath(fileName);
+            if (serviceInfo != null)
+            {
+                serviceInfo.Stop();
+                Console.WriteLine($"Service {serviceInfo.ServiceName} stopped successfully.");
+                return 0;
+            }
+
+            Console.Error.WriteLine("Service not found.");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to stop service: {ex.Message}");
+            return 1;
         }
     }
 }

@@ -1,8 +1,8 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 
 namespace PortTunneler.ServiceHelper;
 
-public class MacServiceInstaller : IServiceInstaller
+public sealed class MacServiceInstaller : IServiceInstaller
 {
     private const string LaunchdServicePath = "/Library/LaunchDaemons";
 
@@ -33,29 +33,35 @@ public class MacServiceInstaller : IServiceInstaller
 
     public void StartService(string serviceName)
     {
-        ExecuteLaunchdCommand($"start {serviceName}");
+        ExecuteLaunchdCommand("start", serviceName);
     }
 
     public void StopService(string serviceName)
     {
-        ExecuteLaunchdCommand($"stop {serviceName}");
+        ExecuteLaunchdCommand("stop", serviceName);
     }
 
     public ServiceState GetServiceStatus(string serviceName)
     {
-        var output = ExecuteLaunchdCommand($"list | grep {serviceName}");
-        return string.IsNullOrEmpty(output) ? ServiceState.Stopped : ServiceState.Running;
+        try
+        {
+            ExecuteLaunchdCommand("list", serviceName);
+            return ServiceState.Running;
+        }
+        catch (InvalidOperationException)
+        {
+            return ServiceState.Stopped;
+        }
     }
 
-    public ServiceInfo GetServiceByExecutablePath(string executablePath)
+    public ServiceInfo? GetServiceByExecutablePath(string executablePath)
     {
         var services = Directory.GetFiles(LaunchdServicePath, "*.plist");
         foreach (var serviceFile in services)
         {
-            string serviceFilePath = Path.Combine(LaunchdServicePath, serviceFile);
-            if (File.Exists(serviceFilePath))
+            if (File.Exists(serviceFile))
             {
-                string content = File.ReadAllText(serviceFilePath);
+                string content = File.ReadAllText(serviceFile);
                 if (content.Contains(executablePath))
                 {
                     string serviceName = Path.GetFileNameWithoutExtension(serviceFile);
@@ -66,14 +72,17 @@ public class MacServiceInstaller : IServiceInstaller
         return null;
     }
 
-    public ServiceInfo GetServiceByName(string serviceName)
+    public ServiceInfo? GetServiceByName(string serviceName)
     {
         var serviceFilePath = GetServiceFilePath(serviceName);
         if (File.Exists(serviceFilePath))
         {
             string content = File.ReadAllText(serviceFilePath);
-            string executablePath = ParseExecutablePath(content);
-            return new ServiceInfo(this, serviceName, serviceName, executablePath);
+            string? executablePath = ParseExecutablePath(content);
+            if (executablePath != null)
+            {
+                return new ServiceInfo(this, serviceName, serviceName, executablePath);
+            }
         }
         return null;
     }
@@ -82,50 +91,44 @@ public class MacServiceInstaller : IServiceInstaller
     {
         var argumentsArray = string.IsNullOrWhiteSpace(arguments) ? string.Empty : $"<string>{arguments}</string>";
 
-        var plistContent = $@"
-<?xml version=""1.0"" encoding=""UTF-8""?>
-<!DOCTYPE plist PUBLIC ""-//Apple//DTD PLIST 1.0//EN"" ""http://www.apple.com/DTDs/PropertyList-1.0.dtd"">
-<plist version=""1.0"">
-<dict>
-    <key>Label</key>
-    <string>{serviceName}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{fileName}</string>
-        {argumentsArray}
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <dict>
-        <key>SuccessfulExit</key>
-        <false/>
-        <key>AfterInitialDemand</key>
-        <true/>
-    </dict>
-    <key>UserName</key>
-    <string>root</string>
-</dict>
-</plist>";
+        var plistContent = $"""
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>Label</key>
+                <string>{serviceName}</string>
+                <key>ProgramArguments</key>
+                <array>
+                    <string>{fileName}</string>
+                    {argumentsArray}
+                </array>
+                <key>RunAtLoad</key>
+                <true/>
+                <key>KeepAlive</key>
+                <dict>
+                    <key>SuccessfulExit</key>
+                    <false/>
+                    <key>AfterInitialDemand</key>
+                    <true/>
+                </dict>
+                <key>UserName</key>
+                <string>{Environment.UserName}</string>
+            </dict>
+            </plist>
+            """;
 
         File.WriteAllText(GetServiceFilePath(serviceName), plistContent);
     }
 
-
     private void LoadService(string serviceName)
     {
-        ExecuteLaunchdCommand($"load -w {GetServiceFilePath(serviceName)}");
-    }
-
-    private void LoadAndStartService(string serviceName)
-    {
-        ExecuteLaunchdCommand($"load -w {GetServiceFilePath(serviceName)}");
-        ExecuteLaunchdCommand($"start {serviceName}");
+        ExecuteLaunchdCommand("load", $"-w {GetServiceFilePath(serviceName)}");
     }
 
     private void UnloadService(string serviceName)
     {
-        ExecuteLaunchdCommand($"unload {GetServiceFilePath(serviceName)}");
+        ExecuteLaunchdCommand("unload", GetServiceFilePath(serviceName));
     }
 
     private void RemoveServiceFile(string serviceName)
@@ -142,28 +145,39 @@ public class MacServiceInstaller : IServiceInstaller
         return Path.Combine(LaunchdServicePath, $"{serviceName}.plist");
     }
 
-    private string ParseExecutablePath(string content)
+    private string? ParseExecutablePath(string content)
     {
-        var execStartLine = content.Split('\n').FirstOrDefault(line => line.Trim().StartsWith("<string>"));
-        if (execStartLine != null)
+        var lines = content.Split('\n');
+        for (int i = 0; i < lines.Length; i++)
         {
-            var parts = execStartLine.Split('<', '>');
-            if (parts.Length > 2)
+            if (lines[i].Trim() == "<key>ProgramArguments</key>")
             {
-                return parts[2].Trim();
+                for (int j = i + 1; j < lines.Length; j++)
+                {
+                    var trimmed = lines[j].Trim();
+                    if (trimmed.StartsWith("<string>") && trimmed.EndsWith("</string>"))
+                    {
+                        return trimmed["<string>".Length..^"</string>".Length];
+                    }
+                    if (trimmed == "</array>")
+                    {
+                        break;
+                    }
+                }
+                break;
             }
         }
         return null;
     }
 
-    private string ExecuteLaunchdCommand(string command)
+    private string ExecuteLaunchdCommand(string command, string arguments)
     {
-        var process = new Process
+        using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "sh",
-                Arguments = $"-c \"launchctl {command}\"",
+                FileName = "launchctl",
+                Arguments = $"{command} {arguments}",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -178,7 +192,7 @@ public class MacServiceInstaller : IServiceInstaller
 
         if (process.ExitCode != 0)
         {
-            throw new InvalidOperationException($"Command 'launchctl {command}' failed with error: {error}");
+            throw new InvalidOperationException($"Command 'launchctl {command} {arguments}' failed with error: {error}");
         }
 
         return output;

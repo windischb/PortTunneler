@@ -3,18 +3,15 @@ using Microsoft.Extensions.Logging;
 
 namespace PortTunneler;
 
-public class LifetimeService : IHostedService
+sealed class LifetimeService : IHostedService
 {
     private readonly IHostApplicationLifetime _appLifetime;
     private readonly ILogger<LifetimeService> _logger;
-    private readonly PortTunnelerConfig _config;
 
-    public LifetimeService(IHostApplicationLifetime appLifetime, ILogger<LifetimeService> logger,
-        PortTunnelerConfig config)
+    public LifetimeService(IHostApplicationLifetime appLifetime, ILogger<LifetimeService> logger)
     {
         _appLifetime = appLifetime;
         _logger = logger;
-        _config = config;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -27,7 +24,7 @@ public class LifetimeService : IHostedService
 
     private void OnStarted()
     {
-        Program.LevelSwitch.MinimumLevel = _config.Logging.LogLevel;
+        _logger.LogInformation("Application started.");
     }
 
     private void OnStopping()
