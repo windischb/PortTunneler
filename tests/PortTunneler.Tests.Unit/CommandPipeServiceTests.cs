@@ -95,6 +95,19 @@ public class CommandPipeServiceTests
 
     private static async Task WaitForServiceStop(Task executeTask)
     {
+        // On Windows, WaitForConnectionAsync may not respect cancellation.
+        // Connect a dummy client to unblock the pipe server loop.
+        try
+        {
+            await using var unblock = new NamedPipeClientStream(".", CommandPipeService.GetPipeName(), PipeDirection.InOut, PipeOptions.Asynchronous);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            await unblock.ConnectAsync(timeout.Token);
+        }
+        catch
+        {
+            // Pipe may already be closed
+        }
+
         try
         {
             await executeTask.WaitAsync(TimeSpan.FromSeconds(5));
