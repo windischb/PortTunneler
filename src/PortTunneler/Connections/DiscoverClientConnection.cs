@@ -7,7 +7,7 @@ namespace PortTunneler.Connections;
 
 public sealed class DiscoverClientConnection : IClientConnection, IMonitorableClient
 {
-    private readonly int _discoveryPort;
+    private readonly IReadOnlyList<int> _discoveryPorts;
     private readonly string _serviceName;
     private readonly string _wireTag;
     private readonly int _listenPort;
@@ -24,7 +24,8 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
         ILogger<DiscoverClientConnection> logger,
         ILogger<MultiplexingClientConnection> multiplexingLogger,
         DestinationMonitorRegistry monitorRegistry,
-        DiscoverTunnelConfig tunnelConfig)
+        DiscoverTunnelConfig tunnelConfig,
+        IReadOnlyList<int> discoveryPorts)
     {
         _logger = logger;
         _multiplexingLogger = multiplexingLogger;
@@ -32,7 +33,7 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
         _serviceName = tunnelConfig.Name;
         _wireTag = tunnelConfig.WireTag;
         _listenPort = tunnelConfig.ListenPort;
-        _discoveryPort = tunnelConfig.DiscoveryPort;
+        _discoveryPorts = discoveryPorts;
     }
 
     public void StartListening()
@@ -90,9 +91,25 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
                     _logger.LogDebug("Discovering {ServiceName}...", _serviceName);
 
                     var requestData = Encoding.UTF8.GetBytes(_wireTag);
-                    var broadcastEp = new IPEndPoint(IPAddress.Broadcast, _discoveryPort);
 
-                    await udpClient.SendAsync(requestData, requestData.Length, broadcastEp);
+                    foreach (var port in _discoveryPorts)
+                    {
+                        var broadcastEp = new IPEndPoint(IPAddress.Broadcast, port);
+                        await udpClient.SendAsync(requestData, requestData.Length, broadcastEp);
+                    }
+
+                    if (WslHelper.IsWsl)
+                    {
+                        var hostAddress = WslHelper.GetHostAddress();
+                        if (hostAddress != null)
+                        {
+                            foreach (var port in _discoveryPorts)
+                            {
+                                var unicastEp = new IPEndPoint(hostAddress, port);
+                                await udpClient.SendAsync(requestData, requestData.Length, unicastEp);
+                            }
+                        }
+                    }
 
                     var response = await ReceiveUdpResponseAsync(udpClient, token);
                     if (response != null)

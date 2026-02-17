@@ -12,11 +12,14 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433 },
-                new DirectTunnelConfig { Name = "web", ListenPort = 8080, TargetAddress = "127.0.0.1:80" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433 },
+                    new DirectTunnelConfig { Name = "web", ListenPort = 8080, TargetAddress = "127.0.0.1:80" }
+                ]
+            }
         };
 
         ConfigValidator.Validate(config, _logger);
@@ -27,11 +30,14 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DiscoverTunnelConfig { Name = "sql1", ListenPort = 1433 },
-                new DiscoverTunnelConfig { Name = "sql2", ListenPort = 1433 }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DiscoverTunnelConfig { Name = "sql1", ListenPort = 1433 },
+                    new DiscoverTunnelConfig { Name = "sql2", ListenPort = 1433 }
+                ]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -46,7 +52,10 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 0 }]
+            Tunnels = new TunnelsConfig
+            {
+                Services = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 0 }]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -60,7 +69,10 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 99999 }]
+            Tunnels = new TunnelsConfig
+            {
+                Services = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 99999 }]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -74,7 +86,10 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels = [new DiscoverTunnelConfig { Name = "", ListenPort = 1433 }]
+            Tunnels = new TunnelsConfig
+            {
+                Services = [new DiscoverTunnelConfig { Name = "", ListenPort = 1433 }]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -88,7 +103,10 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels = [new DirectTunnelConfig { Name = "sql", ListenPort = 1433, TargetAddress = "not-valid" }]
+            Tunnels = new TunnelsConfig
+            {
+                Services = [new DirectTunnelConfig { Name = "sql", ListenPort = 1433, TargetAddress = "not-valid" }]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -103,7 +121,11 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels = [new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "badaddr" }]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                    [new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "badaddr" }]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -197,10 +219,13 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DirectTunnelConfig { Name = "sql", ListenPort = 1433, TargetAddress = "[::1]:1433" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DirectTunnelConfig { Name = "sql", ListenPort = 1433, TargetAddress = "[::1]:1433" }
+                ]
+            }
         };
 
         ConfigValidator.Validate(config, _logger);
@@ -211,10 +236,13 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "myhost:51000" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "myhost:51000" }
+                ]
+            }
         };
 
         ConfigValidator.Validate(config, _logger);
@@ -239,11 +267,14 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DiscoverTunnelConfig { Name = "Display Name 1", ListenPort = 1433, ServiceTag = "sql" },
-                new DiscoverTunnelConfig { Name = "Display Name 2", ListenPort = 1434, ServiceTag = "sql" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DiscoverTunnelConfig { Name = "Display Name 1", ListenPort = 1433, ServiceTag = "sql" },
+                    new DiscoverTunnelConfig { Name = "Display Name 2", ListenPort = 1434, ServiceTag = "sql" }
+                ]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -257,7 +288,10 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433, ServiceTag = " " }]
+            Tunnels = new TunnelsConfig
+            {
+                Services = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433, ServiceTag = " " }]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
@@ -272,16 +306,85 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433 },
-                new DiscoverTunnelConfig { Name = "other", ListenPort = 1434, ServiceTag = "sql" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433 },
+                    new DiscoverTunnelConfig { Name = "other", ListenPort = 1434, ServiceTag = "sql" }
+                ]
+            }
         };
 
         var ex = Assert.Throws<InvalidOperationException>(() =>
             ConfigValidator.Validate(config, _logger));
 
         Assert.Contains("duplicate wire tag", ex.Message);
+    }
+
+    [Fact]
+    public void Validate_DisabledTunnels_SkipsValidation()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels = new TunnelsConfig
+            {
+                Enabled = false,
+                Services = [new DiscoverTunnelConfig { Name = "", ListenPort = 0 }]
+            }
+        };
+
+        ConfigValidator.Validate(config, _logger);
+    }
+
+    [Fact]
+    public void Validate_DisabledServer_SkipsValidation()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Server = new ServerConfig
+            {
+                Enabled = false,
+                ListenPort = 0
+            }
+        };
+
+        ConfigValidator.Validate(config, _logger);
+    }
+
+    [Fact]
+    public void Validate_InvalidDiscoveryPort_Throws()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels = new TunnelsConfig
+            {
+                DiscoveryPorts = [0]
+            }
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
+
+        Assert.Contains("DiscoveryPorts", ex.Message);
+        Assert.Contains("not a valid port", ex.Message);
+    }
+
+    [Fact]
+    public void Validate_DiscoveryPortTooHigh_Throws()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels = new TunnelsConfig
+            {
+                DiscoveryPorts = [99999]
+            }
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
+
+        Assert.Contains("DiscoveryPorts", ex.Message);
+        Assert.Contains("not a valid port", ex.Message);
     }
 }

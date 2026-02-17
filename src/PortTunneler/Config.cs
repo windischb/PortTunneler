@@ -4,7 +4,7 @@ namespace PortTunneler;
 
 public sealed class PortTunnelerConfig
 {
-    public IReadOnlyList<TunnelConfig> Tunnels { get; set; } = [];
+    public TunnelsConfig Tunnels { get; set; } = new();
     public ServerConfig? Server { get; set; }
     public LoggingConfig Logging { get; set; } = new();
 }
@@ -12,6 +12,13 @@ public sealed class PortTunnelerConfig
 public sealed class LoggingConfig
 {
     public LogLevel LogLevel { get; set; } = LogLevel.Warning;
+}
+
+public sealed class TunnelsConfig
+{
+    public bool Enabled { get; set; } = true;
+    public IReadOnlyList<int> DiscoveryPorts { get; set; } = [7608];
+    public IReadOnlyList<TunnelConfig> Services { get; set; } = [];
 }
 
 public abstract class TunnelConfig
@@ -22,10 +29,7 @@ public abstract class TunnelConfig
     public string WireTag => ServiceTag ?? Name;
 }
 
-public sealed class DiscoverTunnelConfig : TunnelConfig
-{
-    public int DiscoveryPort { get; set; } = 7608;
-}
+public sealed class DiscoverTunnelConfig : TunnelConfig;
 
 public sealed class TunnelTunnelConfig : TunnelConfig
 {
@@ -39,6 +43,7 @@ public sealed class DirectTunnelConfig : TunnelConfig
 
 public sealed class ServerConfig
 {
+    public bool Enabled { get; set; } = true;
     public int ListenPort { get; set; } = 51000;
     public int DiscoveryPort { get; set; } = 7608;
     public IReadOnlyList<ExposedServiceConfig> Services { get; set; } = [];

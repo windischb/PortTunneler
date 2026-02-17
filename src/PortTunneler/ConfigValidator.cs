@@ -9,8 +9,15 @@ public static class ConfigValidator
         var errors = new List<string>();
         var warnings = new List<string>();
 
-        ValidateTunnels(config.Tunnels, errors, warnings);
-        ValidateServer(config.Server, errors, warnings);
+        if (config.Tunnels.Enabled)
+        {
+            ValidateTunnels(config.Tunnels, errors, warnings);
+        }
+
+        if (config.Server is { Enabled: true })
+        {
+            ValidateServer(config.Server, errors, warnings);
+        }
 
         foreach (var warning in warnings)
         {
@@ -24,15 +31,24 @@ public static class ConfigValidator
         }
     }
 
-    private static void ValidateTunnels(IReadOnlyList<TunnelConfig> tunnels, List<string> errors, List<string> warnings)
+    private static void ValidateTunnels(TunnelsConfig tunnels, List<string> errors, List<string> warnings)
     {
+        for (var i = 0; i < tunnels.DiscoveryPorts.Count; i++)
+        {
+            var port = tunnels.DiscoveryPorts[i];
+            if (port is < 1 or > 65535)
+            {
+                errors.Add($"Tunnels.DiscoveryPorts[{i}]: {port} is not a valid port (1-65535).");
+            }
+        }
+
         var usedPorts = new HashSet<int>();
         var usedWireTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        for (var i = 0; i < tunnels.Count; i++)
+        for (var i = 0; i < tunnels.Services.Count; i++)
         {
-            var tunnel = tunnels[i];
-            var prefix = $"Tunnels[{i}]";
+            var tunnel = tunnels.Services[i];
+            var prefix = $"Tunnels.Services[{i}]";
 
             if (string.IsNullOrWhiteSpace(tunnel.Name))
             {
@@ -60,13 +76,6 @@ public static class ConfigValidator
 
             switch (tunnel)
             {
-                case DiscoverTunnelConfig discover:
-                    if (discover.DiscoveryPort is < 1 or > 65535)
-                    {
-                        errors.Add($"{prefix}.DiscoveryPort: {discover.DiscoveryPort} is not a valid port (1-65535).");
-                    }
-                    break;
-
                 case TunnelTunnelConfig tunnelMode:
                     if (!TryParseEndpoint(tunnelMode.ServerAddress))
                     {
@@ -84,11 +93,8 @@ public static class ConfigValidator
         }
     }
 
-    private static void ValidateServer(ServerConfig? server, List<string> errors, List<string> warnings)
+    private static void ValidateServer(ServerConfig server, List<string> errors, List<string> warnings)
     {
-        if (server == null)
-            return;
-
         var prefix = "Server";
 
         if (server.ListenPort is < 1 or > 65535)

@@ -20,7 +20,10 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
         var discoveryPort = config.Server.DiscoveryPort;
         var listenPort = config.Server.ListenPort;
 
-        _localIpAddresses = GetLocalIpAddresses();
+        _localIpAddresses = WslHelper.IsWsl ? [] : GetLocalIpAddresses();
+        if (WslHelper.IsWsl)
+            logger.LogInformation("WSL detected, disabling self-broadcast filter.");
+
         _udpClient = new UdpClient(discoveryPort);
         logger.LogInformation("Listening for UDP discovery requests on port {Port}...", discoveryPort);
 

@@ -1,18 +1,20 @@
 {
-  "Tunnels": [
-    {
-      "Name": "webui",
-      "ListenPort": 8080
-    },
-    {
-      "Name": "sql",
-      "ListenPort": 1433
-    },
-    {
-      "Mode": "Direct",
-      "Name": "sql2",
-      "ListenPort": 1434,
-      "TargetAddress": "10.211.55.6:1433"
-    }
-  ]
+  "Tunnels": {
+    "Services": [
+      {
+        "Name": "webui",
+        "ListenPort": 8080
+      },
+      {
+        "Name": "sql",
+        "ListenPort": 1433
+      },
+      {
+        "Mode": "Direct",
+        "Name": "sql2",
+        "ListenPort": 1434,
+        "TargetAddress": "10.211.55.6:1433"
+      }
+    ]
+  }
 }

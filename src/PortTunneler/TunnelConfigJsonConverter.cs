@@ -47,8 +47,7 @@ public sealed class TunnelConfigJsonConverter : JsonConverter<TunnelConfig>
 
         switch (value)
         {
-            case DiscoverTunnelConfig discover:
-                writer.WriteNumber("DiscoveryPort", discover.DiscoveryPort);
+            case DiscoverTunnelConfig:
                 break;
             case TunnelTunnelConfig tunnel:
                 writer.WriteString("Mode", "Tunnel");

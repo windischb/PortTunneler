@@ -35,7 +35,7 @@ public sealed class ClientConnectionManager(
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        foreach (var tunnel in config.Tunnels)
+        foreach (var tunnel in config.Tunnels.Services)
         {
             var connection = Add(tunnel);
             connection.StartListening();

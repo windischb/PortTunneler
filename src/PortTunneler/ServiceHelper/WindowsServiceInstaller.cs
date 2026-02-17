@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 
@@ -166,6 +167,7 @@ public sealed class WindowsServiceInstaller : IServiceInstaller
         return (status.dwCurrentState == desiredStatus);
     }
 
+    [RequiresDynamicCode("Calls System.Runtime.InteropServices.Marshal.PtrToStructure(nint, Type)")]
     private string GetServiceExecutablePath(SafeServiceHandle service)
     {
         const int QUERY_SERVICE_CONFIG = 0x00000001;

@@ -59,6 +59,9 @@ internal sealed class Program
         {
             var config = LoadConfig();
 
+            var serverEnabled = config.Server is { Enabled: true };
+            var tunnelsEnabled = config.Tunnels.Enabled;
+
             var hostBuilder = Host.CreateDefaultBuilder(args)
                 .ConfigureLogging(logging =>
                 {
@@ -71,10 +74,19 @@ internal sealed class Program
                     services.AddSingleton(config);
                     services.AddSingleton<DnsCache>();
                     services.AddSingleton<DestinationMonitorRegistry>();
-                    services.AddSingleton<IClientConnectionFactory, ClientConnectionFactory>();
-                    services.AddHostedService<ClientConnectionManager>();
-                    services.AddHostedService<ServiceDiscoveryHostedService>();
-                    services.AddHostedService<ServerService>();
+
+                    if (tunnelsEnabled)
+                    {
+                        services.AddSingleton<IClientConnectionFactory, ClientConnectionFactory>();
+                        services.AddHostedService<ClientConnectionManager>();
+                    }
+
+                    if (serverEnabled)
+                    {
+                        services.AddHostedService<ServiceDiscoveryHostedService>();
+                        services.AddHostedService<ServerService>();
+                    }
+
                     if (isService)
                     {
                         services.AddHostedService<LifetimeService>();
@@ -132,10 +144,14 @@ internal sealed class Program
 
     private static void LogStartupSummary(PortTunnelerConfig config, ILogger logger)
     {
-        if (config.Tunnels.Count > 0)
+        if (!config.Tunnels.Enabled)
         {
-            logger.LogInformation("Configured {Count} tunnel(s):", config.Tunnels.Count);
-            foreach (var tunnel in config.Tunnels)
+            logger.LogInformation("Tunnels disabled.");
+        }
+        else if (config.Tunnels.Services.Count > 0)
+        {
+            logger.LogInformation("Configured {Count} tunnel(s):", config.Tunnels.Services.Count);
+            foreach (var tunnel in config.Tunnels.Services)
             {
                 var mode = tunnel switch
                 {
@@ -148,7 +164,11 @@ internal sealed class Program
             }
         }
 
-        if (config.Server != null)
+        if (config.Server is { Enabled: false })
+        {
+            logger.LogInformation("Server disabled.");
+        }
+        else if (config.Server != null)
         {
             logger.LogInformation("Server listening on port {Port}, discovery on port {DiscoveryPort}",
                 config.Server.ListenPort, config.Server.DiscoveryPort);

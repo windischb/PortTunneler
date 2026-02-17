@@ -11,6 +11,7 @@ public class ClientConnectionFactoryTests
 
     public ClientConnectionFactoryTests()
     {
+        var config = new PortTunnelerConfig();
         var services = new ServiceCollection();
         services.AddSingleton<ILoggerFactory, NullLoggerFactory>();
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
@@ -18,7 +19,7 @@ public class ClientConnectionFactoryTests
         services.AddSingleton(new DestinationMonitorRegistry(
             NullLogger<DestinationMonitor>.Instance));
         var sp = services.BuildServiceProvider();
-        _factory = new ClientConnectionFactory(sp);
+        _factory = new ClientConnectionFactory(sp, config);
     }
 
     [Fact]

@@ -11,19 +11,21 @@ public class ConfigDeserializationTests
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "sql", "ListenPort": 1433 }
-            ]
+            "Tunnels": {
+                "Services": [
+                    { "Name": "sql", "ListenPort": 1433 }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
         Assert.NotNull(config);
-        Assert.Single(config.Tunnels);
-        Assert.IsType<DiscoverTunnelConfig>(config.Tunnels[0]);
-        Assert.Equal("sql", config.Tunnels[0].Name);
-        Assert.Equal(1433, config.Tunnels[0].ListenPort);
+        Assert.Single(config.Tunnels.Services);
+        Assert.IsType<DiscoverTunnelConfig>(config.Tunnels.Services[0]);
+        Assert.Equal("sql", config.Tunnels.Services[0].Name);
+        Assert.Equal(1433, config.Tunnels.Services[0].ListenPort);
     }
 
     [Fact]
@@ -31,16 +33,17 @@ public class ConfigDeserializationTests
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "sql", "ListenPort": 1433, "Mode": "Discover", "DiscoveryPort": 9999 }
-            ]
+            "Tunnels": {
+                "Services": [
+                    { "Name": "sql", "ListenPort": 1433, "Mode": "Discover" }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        var tunnel = Assert.IsType<DiscoverTunnelConfig>(config!.Tunnels[0]);
-        Assert.Equal(9999, tunnel.DiscoveryPort);
+        Assert.IsType<DiscoverTunnelConfig>(config!.Tunnels.Services[0]);
     }
 
     [Fact]
@@ -48,15 +51,17 @@ public class ConfigDeserializationTests
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "sql", "ListenPort": 1433, "Mode": "Tunnel", "ServerAddress": "10.0.0.5:51000" }
-            ]
+            "Tunnels": {
+                "Services": [
+                    { "Name": "sql", "ListenPort": 1433, "Mode": "Tunnel", "ServerAddress": "10.0.0.5:51000" }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        var tunnel = Assert.IsType<TunnelTunnelConfig>(config!.Tunnels[0]);
+        var tunnel = Assert.IsType<TunnelTunnelConfig>(config!.Tunnels.Services[0]);
         Assert.Equal("10.0.0.5:51000", tunnel.ServerAddress);
     }
 
@@ -65,15 +70,17 @@ public class ConfigDeserializationTests
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "sql", "ListenPort": 1433, "Mode": "Direct", "TargetAddress": "10.0.0.5:1433" }
-            ]
+            "Tunnels": {
+                "Services": [
+                    { "Name": "sql", "ListenPort": 1433, "Mode": "Direct", "TargetAddress": "10.0.0.5:1433" }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        var tunnel = Assert.IsType<DirectTunnelConfig>(config!.Tunnels[0]);
+        var tunnel = Assert.IsType<DirectTunnelConfig>(config!.Tunnels.Services[0]);
         Assert.Equal("10.0.0.5:1433", tunnel.TargetAddress);
     }
 
@@ -95,6 +102,7 @@ public class ConfigDeserializationTests
         Assert.NotNull(config!.Server);
         Assert.Equal(51000, config.Server!.ListenPort);
         Assert.Equal(7608, config.Server.DiscoveryPort);
+        Assert.True(config.Server.Enabled);
         Assert.Single(config.Server.Services);
         Assert.Equal("sql", config.Server.Services[0].Name);
         Assert.Equal("127.0.0.1:1433", config.Server.Services[0].TargetAddress);
@@ -124,20 +132,22 @@ public class ConfigDeserializationTests
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "discover-svc", "ListenPort": 1433 },
-                { "Name": "tunnel-svc", "ListenPort": 1434, "Mode": "Tunnel", "ServerAddress": "10.0.0.5:51000" },
-                { "Name": "direct-svc", "ListenPort": 1435, "Mode": "Direct", "TargetAddress": "10.0.0.5:1433" }
-            ]
+            "Tunnels": {
+                "Services": [
+                    { "Name": "discover-svc", "ListenPort": 1433 },
+                    { "Name": "tunnel-svc", "ListenPort": 1434, "Mode": "Tunnel", "ServerAddress": "10.0.0.5:51000" },
+                    { "Name": "direct-svc", "ListenPort": 1435, "Mode": "Direct", "TargetAddress": "10.0.0.5:1433" }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Equal(3, config!.Tunnels.Count);
-        Assert.IsType<DiscoverTunnelConfig>(config.Tunnels[0]);
-        Assert.IsType<TunnelTunnelConfig>(config.Tunnels[1]);
-        Assert.IsType<DirectTunnelConfig>(config.Tunnels[2]);
+        Assert.Equal(3, config!.Tunnels.Services.Count);
+        Assert.IsType<DiscoverTunnelConfig>(config.Tunnels.Services[0]);
+        Assert.IsType<TunnelTunnelConfig>(config.Tunnels.Services[1]);
+        Assert.IsType<DirectTunnelConfig>(config.Tunnels.Services[2]);
     }
 
     [Fact]
@@ -148,24 +158,42 @@ public class ConfigDeserializationTests
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
         Assert.NotNull(config);
-        Assert.Empty(config.Tunnels);
+        Assert.Empty(config.Tunnels.Services);
+        Assert.True(config.Tunnels.Enabled);
         Assert.Null(config.Server);
     }
 
     [Fact]
-    public void Deserialize_DiscoverDefault_DiscoveryPort()
+    public void Deserialize_DiscoveryPorts_Array()
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "svc", "ListenPort": 8080 }
-            ]
+            "Tunnels": {
+                "DiscoveryPorts": [7608, 7609],
+                "Services": [
+                    { "Name": "svc", "ListenPort": 8080 }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
-        var discover = Assert.IsType<DiscoverTunnelConfig>(config!.Tunnels[0]);
-        Assert.Equal(7608, discover.DiscoveryPort);
+        Assert.Equal([7608, 7609], config!.Tunnels.DiscoveryPorts);
+    }
+
+    [Fact]
+    public void Deserialize_DiscoveryPorts_DefaultsToSinglePort()
+    {
+        const string json = """
+        {
+            "Tunnels": {
+                "Services": []
+            }
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
+        Assert.Equal([7608], config!.Tunnels.DiscoveryPorts);
     }
 
     [Fact]
@@ -173,17 +201,19 @@ public class ConfigDeserializationTests
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "My SQL Server", "ListenPort": 1433, "ServiceTag": "sql-prod" }
-            ]
+            "Tunnels": {
+                "Services": [
+                    { "Name": "My SQL Server", "ListenPort": 1433, "ServiceTag": "sql-prod" }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Equal("My SQL Server", config!.Tunnels[0].Name);
-        Assert.Equal("sql-prod", config.Tunnels[0].ServiceTag);
-        Assert.Equal("sql-prod", config.Tunnels[0].WireTag);
+        Assert.Equal("My SQL Server", config!.Tunnels.Services[0].Name);
+        Assert.Equal("sql-prod", config.Tunnels.Services[0].ServiceTag);
+        Assert.Equal("sql-prod", config.Tunnels.Services[0].WireTag);
     }
 
     [Fact]
@@ -191,16 +221,80 @@ public class ConfigDeserializationTests
     {
         const string json = """
         {
-            "Tunnels": [
-                { "Name": "sql", "ListenPort": 1433 }
-            ]
+            "Tunnels": {
+                "Services": [
+                    { "Name": "sql", "ListenPort": 1433 }
+                ]
+            }
         }
         """;
 
         var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Null(config!.Tunnels[0].ServiceTag);
-        Assert.Equal("sql", config.Tunnels[0].WireTag);
+        Assert.Null(config!.Tunnels.Services[0].ServiceTag);
+        Assert.Equal("sql", config.Tunnels.Services[0].WireTag);
+    }
+
+    [Fact]
+    public void Deserialize_TunnelsEnabled_DefaultsToTrue()
+    {
+        const string json = """
+        {
+            "Tunnels": {
+                "Services": []
+            }
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
+        Assert.True(config!.Tunnels.Enabled);
+    }
+
+    [Fact]
+    public void Deserialize_TunnelsEnabled_False()
+    {
+        const string json = """
+        {
+            "Tunnels": {
+                "Enabled": false,
+                "Services": []
+            }
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
+        Assert.False(config!.Tunnels.Enabled);
+    }
+
+    [Fact]
+    public void Deserialize_ServerEnabled_DefaultsToTrue()
+    {
+        const string json = """
+        {
+            "Server": {
+                "Services": []
+            }
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
+        Assert.True(config!.Server!.Enabled);
+    }
+
+    [Fact]
+    public void Deserialize_ServerEnabled_False()
+    {
+        const string json = """
+        {
+            "Server": {
+                "Enabled": false,
+                "Services": []
+            }
+        }
+        """;
+
+        var config = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
+        Assert.False(config!.Server!.Enabled);
     }
 
     [Fact]
@@ -208,17 +302,20 @@ public class ConfigDeserializationTests
     {
         var original = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "10.0.0.5:51000" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "10.0.0.5:51000" }
+                ]
+            }
         };
 
         var json = JsonSerializer.Serialize(original, Options);
         var deserialized = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Single(deserialized!.Tunnels);
-        var tunnel = Assert.IsType<TunnelTunnelConfig>(deserialized.Tunnels[0]);
+        Assert.Single(deserialized!.Tunnels.Services);
+        var tunnel = Assert.IsType<TunnelTunnelConfig>(deserialized.Tunnels.Services[0]);
         Assert.Equal("sql", tunnel.Name);
         Assert.Equal(1433, tunnel.ListenPort);
         Assert.Equal("10.0.0.5:51000", tunnel.ServerAddress);
@@ -229,17 +326,20 @@ public class ConfigDeserializationTests
     {
         var original = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DirectTunnelConfig { Name = "web", ListenPort = 8080, TargetAddress = "10.0.0.5:80" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DirectTunnelConfig { Name = "web", ListenPort = 8080, TargetAddress = "10.0.0.5:80" }
+                ]
+            }
         };
 
         var json = JsonSerializer.Serialize(original, Options);
         var deserialized = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Single(deserialized!.Tunnels);
-        var tunnel = Assert.IsType<DirectTunnelConfig>(deserialized.Tunnels[0]);
+        Assert.Single(deserialized!.Tunnels.Services);
+        var tunnel = Assert.IsType<DirectTunnelConfig>(deserialized.Tunnels.Services[0]);
         Assert.Equal("web", tunnel.Name);
         Assert.Equal("10.0.0.5:80", tunnel.TargetAddress);
     }
@@ -249,18 +349,20 @@ public class ConfigDeserializationTests
     {
         var original = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433, DiscoveryPort = 9999 }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433 }
+                ]
+            }
         };
 
         var json = JsonSerializer.Serialize(original, Options);
         var deserialized = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Single(deserialized!.Tunnels);
-        var tunnel = Assert.IsType<DiscoverTunnelConfig>(deserialized.Tunnels[0]);
-        Assert.Equal(9999, tunnel.DiscoveryPort);
+        Assert.Single(deserialized!.Tunnels.Services);
+        Assert.IsType<DiscoverTunnelConfig>(deserialized.Tunnels.Services[0]);
     }
 
     [Fact]
@@ -268,18 +370,21 @@ public class ConfigDeserializationTests
     {
         var original = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DiscoverTunnelConfig { Name = "My SQL", ListenPort = 1433, ServiceTag = "sql-prod" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DiscoverTunnelConfig { Name = "My SQL", ListenPort = 1433, ServiceTag = "sql-prod" }
+                ]
+            }
         };
 
         var json = JsonSerializer.Serialize(original, Options);
         var deserialized = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Equal("My SQL", deserialized!.Tunnels[0].Name);
-        Assert.Equal("sql-prod", deserialized.Tunnels[0].ServiceTag);
-        Assert.Equal("sql-prod", deserialized.Tunnels[0].WireTag);
+        Assert.Equal("My SQL", deserialized!.Tunnels.Services[0].Name);
+        Assert.Equal("sql-prod", deserialized.Tunnels.Services[0].ServiceTag);
+        Assert.Equal("sql-prod", deserialized.Tunnels.Services[0].WireTag);
     }
 
     [Fact]
@@ -287,21 +392,27 @@ public class ConfigDeserializationTests
     {
         var original = new PortTunnelerConfig
         {
-            Tunnels =
-            [
-                new DiscoverTunnelConfig { Name = "discover-svc", ListenPort = 1433 },
-                new TunnelTunnelConfig { Name = "tunnel-svc", ListenPort = 1434, ServerAddress = "10.0.0.5:51000" },
-                new DirectTunnelConfig { Name = "direct-svc", ListenPort = 1435, TargetAddress = "10.0.0.5:1433" }
-            ]
+            Tunnels = new TunnelsConfig
+            {
+                Services =
+                [
+                    new DiscoverTunnelConfig { Name = "discover-svc", ListenPort = 1433 },
+                    new TunnelTunnelConfig
+                    {
+                        Name = "tunnel-svc", ListenPort = 1434, ServerAddress = "10.0.0.5:51000"
+                    },
+                    new DirectTunnelConfig { Name = "direct-svc", ListenPort = 1435, TargetAddress = "10.0.0.5:1433" }
+                ]
+            }
         };
 
         var json = JsonSerializer.Serialize(original, Options);
         var deserialized = JsonSerializer.Deserialize<PortTunnelerConfig>(json, Options);
 
-        Assert.Equal(3, deserialized!.Tunnels.Count);
-        Assert.IsType<DiscoverTunnelConfig>(deserialized.Tunnels[0]);
-        Assert.IsType<TunnelTunnelConfig>(deserialized.Tunnels[1]);
-        Assert.IsType<DirectTunnelConfig>(deserialized.Tunnels[2]);
+        Assert.Equal(3, deserialized!.Tunnels.Services.Count);
+        Assert.IsType<DiscoverTunnelConfig>(deserialized.Tunnels.Services[0]);
+        Assert.IsType<TunnelTunnelConfig>(deserialized.Tunnels.Services[1]);
+        Assert.IsType<DirectTunnelConfig>(deserialized.Tunnels.Services[2]);
     }
 
     [Fact]

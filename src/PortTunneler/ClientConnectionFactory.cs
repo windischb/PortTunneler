@@ -3,19 +3,20 @@ using PortTunneler.Connections;
 
 namespace PortTunneler;
 
-public sealed class ClientConnectionFactory(IServiceProvider serviceProvider) : IClientConnectionFactory
+public sealed class ClientConnectionFactory(IServiceProvider serviceProvider, PortTunnelerConfig config)
+    : IClientConnectionFactory
 {
-    public IClientConnection Create(TunnelConfig config)
+    public IClientConnection Create(TunnelConfig tunnelConfig)
     {
-        return config switch
+        return tunnelConfig switch
         {
             DirectTunnelConfig direct => ActivatorUtilities.CreateInstance<DirectClientConnection>(
                 serviceProvider, direct),
             TunnelTunnelConfig tunnel => ActivatorUtilities.CreateInstance<MultiplexingClientConnection>(
                 serviceProvider, tunnel),
             DiscoverTunnelConfig discover => ActivatorUtilities.CreateInstance<DiscoverClientConnection>(
-                serviceProvider, discover),
-            _ => throw new InvalidOperationException($"Unknown tunnel config type: {config.GetType().Name}")
+                serviceProvider, discover, config.Tunnels.DiscoveryPorts),
+            _ => throw new InvalidOperationException($"Unknown tunnel config type: {tunnelConfig.GetType().Name}")
         };
     }
 }

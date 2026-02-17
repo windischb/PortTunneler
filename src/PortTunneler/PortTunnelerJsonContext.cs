@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 namespace PortTunneler;
 
 [JsonSerializable(typeof(PortTunnelerConfig))]
+[JsonSerializable(typeof(TunnelsConfig))]
 [JsonSerializable(typeof(DiscoverTunnelConfig))]
 [JsonSerializable(typeof(TunnelTunnelConfig))]
 [JsonSerializable(typeof(DirectTunnelConfig))]
