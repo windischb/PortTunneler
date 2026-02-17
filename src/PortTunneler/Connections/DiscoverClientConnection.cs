@@ -99,6 +99,9 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
                     {
                         var broadcastEp = new IPEndPoint(IPAddress.Broadcast, port);
                         await udpClient.SendAsync(requestData, requestData.Length, broadcastEp);
+
+                        var loopbackEp = new IPEndPoint(IPAddress.Loopback, port);
+                        await udpClient.SendAsync(requestData, requestData.Length, loopbackEp);
                     }
 
                     if (WslHelper.IsWsl)
