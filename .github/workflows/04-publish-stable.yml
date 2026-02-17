@@ -1,0 +1,142 @@
+name: Publish Stable
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: publish-stable-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  test-multiplatform:
+    if: github.event.release.target_commitish == 'develop'
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - uses: gittools/actions/gitversion/setup@v3
+        with:
+          versionSpec: '6.x'
+
+      - uses: gittools/actions/gitversion/execute@v3
+        id: gitversion
+
+      - name: Build
+        run: >-
+          dotnet build src/PortTunneler.sln -c Release
+          -p:Version=${{ steps.gitversion.outputs.semVer }}
+          -p:AssemblyVersion=${{ steps.gitversion.outputs.assemblySemVer }}
+          -p:FileVersion=${{ steps.gitversion.outputs.assemblySemFileVer }}
+
+      - name: Test
+        run: dotnet test src/PortTunneler.sln -c Release --no-build
+
+  publish:
+    name: Publish (${{ matrix.rid }})
+    needs: test-multiplatform
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact: PortTunneler-linux-x64
+          - os: ubuntu-24.04-arm
+            rid: linux-arm64
+            artifact: PortTunneler-linux-arm64
+          - os: windows-latest
+            rid: win-x64
+            artifact: PortTunneler-win-x64.exe
+          - os: windows-11-arm
+            rid: win-arm64
+            artifact: PortTunneler-win-arm64.exe
+          - os: macos-13
+            rid: osx-x64
+            artifact: PortTunneler-macos-x64
+          - os: macos-latest
+            rid: osx-arm64
+            artifact: PortTunneler-macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Extract version from tag
+        id: version
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag '$TAG' does not match expected format vX.Y.Z"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish AOT
+        run: >-
+          dotnet publish src/PortTunneler/PortTunneler.csproj -c Release
+          -r ${{ matrix.rid }}
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:AssemblyVersion=${{ steps.version.outputs.version }}
+          -p:FileVersion=${{ steps.version.outputs.version }}
+
+      - name: Rename binary (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: mv src/PortTunneler/bin/Release/net10.0/${{ matrix.rid }}/publish/PortTunneler ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        run: mv src/PortTunneler/bin/Release/net10.0/${{ matrix.rid }}/publish/PortTunneler.exe ${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  upload-release-assets:
+    name: Upload Release Assets
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release upload "${{ github.event.release.tag_name }}"
+          artifacts/PortTunneler-linux-x64/PortTunneler-linux-x64
+          artifacts/PortTunneler-linux-arm64/PortTunneler-linux-arm64
+          artifacts/PortTunneler-win-x64.exe/PortTunneler-win-x64.exe
+          artifacts/PortTunneler-win-arm64.exe/PortTunneler-win-arm64.exe
+          artifacts/PortTunneler-macos-x64/PortTunneler-macos-x64
+          artifacts/PortTunneler-macos-arm64/PortTunneler-macos-arm64
+          --repo ${{ github.repository }}
