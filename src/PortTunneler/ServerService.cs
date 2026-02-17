@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Hosting;
@@ -7,6 +8,8 @@ namespace PortTunneler;
 
 public class ServerService(ILogger<ServerService> logger, DnsCache dnsCache, PortTunnelerConfig config) : BackgroundService
 {
+    private readonly ConcurrentDictionary<string, ConcurrentBag<CancellationTokenSource>> _activeConnections = new(StringComparer.OrdinalIgnoreCase);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (config.Server == null)
@@ -43,6 +46,37 @@ public class ServerService(ILogger<ServerService> logger, DnsCache dnsCache, Por
         }
     }
 
+    public void CancelConnectionsForService(string wireTag)
+    {
+        if (!_activeConnections.TryRemove(wireTag, out var bag))
+            return;
+
+        var count = 0;
+        foreach (var cts in bag)
+        {
+            cts.Cancel();
+            cts.Dispose();
+            count++;
+        }
+
+        logger.LogInformation("Cancelled {Count} active connection(s) for service {WireTag}.", count, wireTag);
+    }
+
+    private CancellationTokenSource TrackConnection(string wireTag, CancellationToken stoppingToken)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        var bag = _activeConnections.GetOrAdd(wireTag, _ => []);
+        bag.Add(cts);
+        return cts;
+    }
+
+    private void UntrackConnection(string wireTag, CancellationTokenSource cts)
+    {
+        // ConcurrentBag doesn't support removal, but disposed/cancelled CTS entries are harmless.
+        // They'll be cleaned up when the service is removed via CancelConnectionsForService.
+        cts.Dispose();
+    }
+
     private async Task HandleClientAsync(Socket clientSocket, CancellationToken stoppingToken)
     {
         await using var clientStream = new NetworkStream(clientSocket, ownsSocket: true);
@@ -73,8 +107,16 @@ public class ServerService(ILogger<ServerService> logger, DnsCache dnsCache, Por
                     continue;
                 }
 
-                var targetEndpoint = await dnsCache.ResolveAsync(offeredService.TargetAddress, stoppingToken);
-                await HandleDirectConnectionAsync(clientStream, targetEndpoint, stoppingToken);
+                var connectionCts = TrackConnection(tag, stoppingToken);
+                try
+                {
+                    var targetEndpoint = await dnsCache.ResolveAsync(offeredService.TargetAddress, connectionCts.Token);
+                    await HandleDirectConnectionAsync(clientStream, targetEndpoint, connectionCts.Token);
+                }
+                finally
+                {
+                    UntrackConnection(tag, connectionCts);
+                }
             }
         }
         catch (InvalidDataException ex)

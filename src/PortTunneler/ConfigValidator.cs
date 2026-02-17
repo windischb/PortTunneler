@@ -31,6 +31,36 @@ public static class ConfigValidator
         }
     }
 
+    public static bool TryValidate(PortTunnelerConfig config, ILogger logger, out string? errorMessage)
+    {
+        var errors = new List<string>();
+        var warnings = new List<string>();
+
+        if (config.Tunnels.Enabled)
+        {
+            ValidateTunnels(config.Tunnels, errors, warnings);
+        }
+
+        if (config.Server is { Enabled: true })
+        {
+            ValidateServer(config.Server, errors, warnings);
+        }
+
+        foreach (var warning in warnings)
+        {
+            logger.LogWarning("{Warning}", warning);
+        }
+
+        if (errors.Count > 0)
+        {
+            errorMessage = "Configuration validation failed:\n" + string.Join("\n", errors.Select(e => $"  - {e}"));
+            return false;
+        }
+
+        errorMessage = null;
+        return true;
+    }
+
     private static void ValidateTunnels(TunnelsConfig tunnels, List<string> errors, List<string> warnings)
     {
         for (var i = 0; i < tunnels.DiscoveryPorts.Count; i++)

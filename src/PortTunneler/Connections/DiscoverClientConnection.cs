@@ -7,7 +7,7 @@ namespace PortTunneler.Connections;
 
 public sealed class DiscoverClientConnection : IClientConnection, IMonitorableClient
 {
-    private readonly IReadOnlyList<int> _discoveryPorts;
+    private readonly PortTunnelerConfig _config;
     private readonly string _serviceName;
     private readonly string _wireTag;
     private readonly int _listenPort;
@@ -26,17 +26,17 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
         ILogger<MultiplexingClientConnection> multiplexingLogger,
         DestinationMonitorRegistry monitorRegistry,
         ProcessNonce processNonce,
-        DiscoverTunnelConfig tunnelConfig,
-        IReadOnlyList<int> discoveryPorts)
+        PortTunnelerConfig config,
+        DiscoverTunnelConfig tunnelConfig)
     {
         _logger = logger;
         _multiplexingLogger = multiplexingLogger;
         _monitorRegistry = monitorRegistry;
         _processNonce = processNonce;
+        _config = config;
         _serviceName = tunnelConfig.Name;
         _wireTag = tunnelConfig.WireTag;
         _listenPort = tunnelConfig.ListenPort;
-        _discoveryPorts = discoveryPorts;
     }
 
     public void StartListening()
@@ -95,7 +95,7 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
 
                     var requestData = Encoding.UTF8.GetBytes($"{_processNonce.Value}\n{_wireTag}");
 
-                    foreach (var port in _discoveryPorts)
+                    foreach (var port in _config.Tunnels.DiscoveryPorts)
                     {
                         var broadcastEp = new IPEndPoint(IPAddress.Broadcast, port);
                         await udpClient.SendAsync(requestData, requestData.Length, broadcastEp);
@@ -109,7 +109,7 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
                         var hostAddress = WslHelper.GetHostAddress();
                         if (hostAddress != null)
                         {
-                            foreach (var port in _discoveryPorts)
+                            foreach (var port in _config.Tunnels.DiscoveryPorts)
                             {
                                 var unicastEp = new IPEndPoint(hostAddress, port);
                                 await udpClient.SendAsync(requestData, requestData.Length, unicastEp);
@@ -179,6 +179,8 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
 
     public async ValueTask DisposeAsync()
     {
+        _destinationMonitor?.UnregisterClient(this);
+        _destinationMonitor = null;
         await _cts.CancelAsync();
         if (_tunnelClientConnection != null)
         {
@@ -190,6 +192,8 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
 
     public void Dispose()
     {
+        _destinationMonitor?.UnregisterClient(this);
+        _destinationMonitor = null;
         _cts.Cancel();
         _tunnelClientConnection?.Dispose();
         _tunnelClientConnection = null;

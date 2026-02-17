@@ -1,3 +1,5 @@
+using System.IO.Pipes;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -35,6 +37,11 @@ internal sealed class Program
         if (args.Contains("--check-config"))
         {
             return CheckConfig();
+        }
+
+        if (args.Contains("--reload-config"))
+        {
+            return await ReloadConfig();
         }
 
         using var cts = new CancellationTokenSource();
@@ -79,14 +86,18 @@ internal sealed class Program
                     if (tunnelsEnabled)
                     {
                         services.AddSingleton<IClientConnectionFactory, ClientConnectionFactory>();
-                        services.AddHostedService<ClientConnectionManager>();
+                        services.AddSingleton<ClientConnectionManager>();
+                        services.AddHostedService(sp => sp.GetRequiredService<ClientConnectionManager>());
                     }
 
                     if (serverEnabled)
                     {
                         services.AddHostedService<ServiceDiscoveryHostedService>();
-                        services.AddHostedService<ServerService>();
+                        services.AddSingleton<ServerService>();
+                        services.AddHostedService(sp => sp.GetRequiredService<ServerService>());
                     }
+
+                    services.AddHostedService<CommandPipeService>();
 
                     if (isService)
                     {
@@ -145,6 +156,7 @@ internal sealed class Program
 
     private static void LogStartupSummary(PortTunnelerConfig config, ILogger logger)
     {
+        logger.LogInformation("Command pipe: {PipeName}", CommandPipeService.GetPipeName());
         if (!config.Tunnels.Enabled)
         {
             logger.LogInformation("Tunnels disabled.");
@@ -268,6 +280,42 @@ internal sealed class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Configuration error: {ex.Message}");
+            return 1;
+        }
+    }
+
+    private static async Task<int> ReloadConfig()
+    {
+        var pipeName = CommandPipeService.GetPipeName();
+        try
+        {
+            await using var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await pipe.ConnectAsync(cts.Token);
+
+            await using var writer = new StreamWriter(pipe, Encoding.UTF8, leaveOpen: true) { AutoFlush = true };
+            using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
+
+            await writer.WriteLineAsync("reload".AsMemory(), cts.Token);
+            var response = await reader.ReadLineAsync(cts.Token);
+
+            // Read any remaining lines (multi-line responses)
+            while (await reader.ReadLineAsync(cts.Token) is { } extra)
+            {
+                response += "\n" + extra;
+            }
+
+            Console.WriteLine(response ?? "No response from server.");
+            return response != null && !response.StartsWith("Error", StringComparison.Ordinal) ? 0 : 1;
+        }
+        catch (TimeoutException)
+        {
+            Console.Error.WriteLine($"Timeout connecting to pipe '{pipeName}'. Is PortTunneler running?");
+            return 1;
+        }
+        catch (IOException ex)
+        {
+            Console.Error.WriteLine($"Could not connect to pipe '{pipeName}': {ex.Message}");
             return 1;
         }
     }

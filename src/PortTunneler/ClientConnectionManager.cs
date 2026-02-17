@@ -44,6 +44,33 @@ public sealed class ClientConnectionManager(
         return Task.CompletedTask;
     }
 
+    public async Task ApplyDiffAsync(TunnelDiffer.DiffResult diff, CancellationToken ct)
+    {
+        foreach (var port in diff.RemovedPorts)
+        {
+            logger.LogInformation("Removing tunnel on port {Port}.", port);
+            await RemoveAsync(port, ct);
+        }
+
+        foreach (var tunnel in diff.Changed)
+        {
+            logger.LogInformation("Restarting changed tunnel {Name} on port {Port}.", tunnel.Name, tunnel.ListenPort);
+            await RemoveAsync(tunnel.ListenPort, ct);
+        }
+
+        foreach (var tunnel in diff.Added)
+        {
+            logger.LogInformation("Adding new tunnel {Name} on port {Port}.", tunnel.Name, tunnel.ListenPort);
+            Add(tunnel).StartListening();
+        }
+
+        foreach (var tunnel in diff.Changed)
+        {
+            logger.LogInformation("Starting changed tunnel {Name} on port {Port}.", tunnel.Name, tunnel.ListenPort);
+            Add(tunnel).StartListening();
+        }
+    }
+
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         foreach (var key in Connections.Keys)
