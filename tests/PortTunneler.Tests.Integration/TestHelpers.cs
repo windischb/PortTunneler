@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 
 namespace PortTunneler.Tests.Integration;
 
@@ -50,6 +51,7 @@ public static class TestHelpers
             while ((bytesRead = await stream.ReadAsync(buffer, ct)) > 0)
             {
                 await stream.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+                await stream.FlushAsync(ct);
             }
         }
         catch
@@ -62,7 +64,7 @@ public static class TestHelpers
         }
     }
 
-    public static async Task<TcpClient> ConnectWithRetryAsync(string host, int port, int retries = 10, int delayMs = 100)
+    public static async Task<TcpClient> ConnectWithRetryAsync(string host, int port, int retries = 20, int delayMs = 200)
     {
         for (var i = 0; i < retries; i++)
         {
@@ -79,5 +81,13 @@ public static class TestHelpers
         }
 
         throw new Exception($"Could not connect to {host}:{port} after {retries} retries.");
+    }
+
+    public static async Task<string> ReadWithTimeoutAsync(NetworkStream stream, int timeoutMs = 5000)
+    {
+        using var cts = new CancellationTokenSource(timeoutMs);
+        var buffer = new byte[8192];
+        var bytesRead = await stream.ReadAsync(buffer, cts.Token);
+        return Encoding.UTF8.GetString(buffer, 0, bytesRead);
     }
 }

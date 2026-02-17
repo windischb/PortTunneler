@@ -40,18 +40,16 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
         using var connection = new DirectClientConnection(NullLogger<DirectClientConnection>.Instance, new DnsCache(), config);
         connection.StartListening();
 
-        await Task.Delay(100); // Let listener start
-
         using var client = await TestHelpers.ConnectWithRetryAsync("127.0.0.1", _listenPort);
         await using var stream = client.GetStream();
 
         var message = "Hello, Echo!"u8.ToArray();
         await stream.WriteAsync(message);
+        await stream.FlushAsync();
 
-        var buffer = new byte[1024];
-        var bytesRead = await stream.ReadAsync(buffer);
+        var response = await TestHelpers.ReadWithTimeoutAsync(stream);
 
-        Assert.Equal("Hello, Echo!", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+        Assert.Equal("Hello, Echo!", response);
 
         await connection.StopAsync(CancellationToken.None);
     }
@@ -69,8 +67,6 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
         using var connection = new DirectClientConnection(NullLogger<DirectClientConnection>.Instance, new DnsCache(), config);
         connection.StartListening();
 
-        await Task.Delay(100);
-
         for (var i = 0; i < 3; i++)
         {
             using var client = await TestHelpers.ConnectWithRetryAsync("127.0.0.1", _listenPort);
@@ -78,11 +74,11 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
 
             var message = Encoding.UTF8.GetBytes($"Message {i}");
             await stream.WriteAsync(message);
+            await stream.FlushAsync();
 
-            var buffer = new byte[1024];
-            var bytesRead = await stream.ReadAsync(buffer);
+            var response = await TestHelpers.ReadWithTimeoutAsync(stream);
 
-            Assert.Equal($"Message {i}", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+            Assert.Equal($"Message {i}", response);
         }
 
         await connection.StopAsync(CancellationToken.None);

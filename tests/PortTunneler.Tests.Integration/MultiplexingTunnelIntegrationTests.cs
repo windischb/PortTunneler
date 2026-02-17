@@ -1,4 +1,3 @@
-using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -47,7 +46,6 @@ public class MultiplexingTunnelIntegrationTests : IAsyncLifetime
             .Build();
 
         await _serverHost.StartAsync(_cts.Token);
-        await Task.Delay(200); // Let server start listening
     }
 
     public async ValueTask DisposeAsync()
@@ -76,18 +74,16 @@ public class MultiplexingTunnelIntegrationTests : IAsyncLifetime
             NullLogger<Connections.MultiplexingClientConnection>.Instance, new DnsCache(), tunnelConfig);
         connection.StartListening();
 
-        await Task.Delay(200);
-
         using var client = await TestHelpers.ConnectWithRetryAsync("127.0.0.1", _clientPort);
         await using var stream = client.GetStream();
 
         var message = "Hello via multiplexing!"u8.ToArray();
         await stream.WriteAsync(message);
+        await stream.FlushAsync();
 
-        var buffer = new byte[1024];
-        var bytesRead = await stream.ReadAsync(buffer);
+        var response = await TestHelpers.ReadWithTimeoutAsync(stream);
 
-        Assert.Equal("Hello via multiplexing!", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+        Assert.Equal("Hello via multiplexing!", response);
 
         await connection.StopAsync(CancellationToken.None);
     }
