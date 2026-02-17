@@ -19,17 +19,20 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
     private readonly ILogger<MultiplexingClientConnection> _multiplexingLogger;
     private DestinationMonitor? _destinationMonitor;
     private readonly DestinationMonitorRegistry _monitorRegistry;
+    private readonly ProcessNonce _processNonce;
 
     public DiscoverClientConnection(
         ILogger<DiscoverClientConnection> logger,
         ILogger<MultiplexingClientConnection> multiplexingLogger,
         DestinationMonitorRegistry monitorRegistry,
+        ProcessNonce processNonce,
         DiscoverTunnelConfig tunnelConfig,
         IReadOnlyList<int> discoveryPorts)
     {
         _logger = logger;
         _multiplexingLogger = multiplexingLogger;
         _monitorRegistry = monitorRegistry;
+        _processNonce = processNonce;
         _serviceName = tunnelConfig.Name;
         _wireTag = tunnelConfig.WireTag;
         _listenPort = tunnelConfig.ListenPort;
@@ -90,7 +93,7 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
                 {
                     _logger.LogDebug("Discovering {ServiceName}...", _serviceName);
 
-                    var requestData = Encoding.UTF8.GetBytes(_wireTag);
+                    var requestData = Encoding.UTF8.GetBytes($"{_processNonce.Value}\n{_wireTag}");
 
                     foreach (var port in _discoveryPorts)
                     {

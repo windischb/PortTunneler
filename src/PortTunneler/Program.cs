@@ -73,6 +73,7 @@ internal sealed class Program
                 {
                     services.AddSingleton(config);
                     services.AddSingleton<DnsCache>();
+                    services.AddSingleton<ProcessNonce>();
                     services.AddSingleton<DestinationMonitorRegistry>();
 
                     if (tunnelsEnabled)

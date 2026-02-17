@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using Microsoft.Extensions.Hosting;
@@ -6,11 +5,13 @@ using Microsoft.Extensions.Logging;
 
 namespace PortTunneler;
 
-public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService> logger, PortTunnelerConfig config)
+public class ServiceDiscoveryHostedService(
+    ILogger<ServiceDiscoveryHostedService> logger,
+    PortTunnelerConfig config,
+    ProcessNonce processNonce)
     : BackgroundService
 {
     private UdpClient? _udpClient;
-    private HashSet<IPAddress>? _localIpAddresses;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -20,10 +21,6 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
         var discoveryPort = config.Server.DiscoveryPort;
         var listenPort = config.Server.ListenPort;
 
-        _localIpAddresses = WslHelper.IsWsl ? [] : GetLocalIpAddresses();
-        if (WslHelper.IsWsl)
-            logger.LogInformation("WSL detected, disabling self-broadcast filter.");
-
         _udpClient = new UdpClient(discoveryPort);
         logger.LogInformation("Listening for UDP discovery requests on port {Port}...", discoveryPort);
 
@@ -32,30 +29,40 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
             try
             {
                 var result = await _udpClient.ReceiveAsync(stoppingToken);
-                // Check if the message is from this machine
-                if (_localIpAddresses!.Contains(result.RemoteEndPoint.Address))
+                var message = Encoding.UTF8.GetString(result.Buffer);
+
+                string wireTag;
+                var newlineIndex = message.IndexOf('\n');
+                if (newlineIndex >= 0)
                 {
-                    logger.LogDebug("Ignored broadcast message from self.");
-                    continue;
+                    var nonce = message[..newlineIndex];
+                    if (nonce == processNonce.Value)
+                    {
+                        logger.LogDebug("Ignored discovery request from self (nonce match).");
+                        continue;
+                    }
+                    wireTag = message[(newlineIndex + 1)..];
+                }
+                else
+                {
+                    wireTag = message;
                 }
 
-                var requestMessage = Encoding.UTF8.GetString(result.Buffer);
-
                 logger.LogDebug("Received discovery request for service {ServiceName} from {RemoteEndPoint}.",
-                    requestMessage, result.RemoteEndPoint);
+                    wireTag, result.RemoteEndPoint);
 
-                if (config.Server.Services.Any(s => s.WireTag == requestMessage))
+                if (config.Server.Services.Any(s => s.WireTag == wireTag))
                 {
                     var responseMessage = listenPort.ToString();
                     var responseData = Encoding.UTF8.GetBytes(responseMessage);
                     await _udpClient.SendAsync(responseData, responseData.Length, result.RemoteEndPoint);
 
                     logger.LogDebug("Responded with endpoint {EndPoint} for service {ServiceName}.",
-                        responseMessage, requestMessage);
+                        responseMessage, wireTag);
                 }
                 else
                 {
-                    logger.LogWarning("No matching service found for {ServiceName}.", requestMessage);
+                    logger.LogWarning("No matching service found for {ServiceName}.", wireTag);
                 }
             }
             catch (OperationCanceledException)
@@ -67,18 +74,6 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
                 logger.LogError(ex, "An error occurred while processing discovery requests.");
             }
         }
-    }
-
-    private static HashSet<IPAddress> GetLocalIpAddresses()
-    {
-        var host = Dns.GetHostEntry(Dns.GetHostName());
-        var addresses = new HashSet<IPAddress>(
-            host.AddressList.Where(ip => ip.AddressFamily == AddressFamily.InterNetwork));
-
-        if (addresses.Count == 0)
-            throw new InvalidOperationException("No network adapters with an IPv4 address in the system!");
-
-        return addresses;
     }
 
     public override void Dispose()

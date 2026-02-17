@@ -16,6 +16,7 @@ public class ClientConnectionFactoryTests
         services.AddSingleton<ILoggerFactory, NullLoggerFactory>();
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
         services.AddSingleton<DnsCache>();
+        services.AddSingleton<ProcessNonce>();
         services.AddSingleton(new DestinationMonitorRegistry(
             NullLogger<DestinationMonitor>.Instance));
         var sp = services.BuildServiceProvider();
