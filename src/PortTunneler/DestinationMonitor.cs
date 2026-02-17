@@ -65,7 +65,8 @@ public class DestinationMonitor(IPEndPoint destination, ILogger<DestinationMonit
     {
         try
         {
-            _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            _socket = new Socket(destination.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            _socket.NoDelay = true;
             await _socket.ConnectAsync(destination, token);
 
             await using var networkStream = new NetworkStream(_socket, ownsSocket: false);

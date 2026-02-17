@@ -73,6 +73,7 @@ public sealed class MultiplexingClientConnection : IClientConnection
             try
             {
                 var clientSocket = await _listener!.AcceptAsync(token);
+                clientSocket.NoDelay = true;
                 _logger.LogDebug("Accepted a connection on port {Port}. Service: {ServiceName}",
                     _listenPort, _serviceName);
                 _ = HandleClientAsync(clientSocket, token).ContinueWith(
@@ -96,11 +97,12 @@ public sealed class MultiplexingClientConnection : IClientConnection
 
     private async Task HandleClientAsync(Socket clientSocket, CancellationToken ct)
     {
-        using var serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
         try
         {
             var endpoint = await _dnsCache.ResolveAsync(_serverAddress, ct);
+            using var serverSocket = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            serverSocket.NoDelay = true;
+
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             connectCts.CancelAfter(ConnectTimeout);
             await serverSocket.ConnectAsync(endpoint, connectCts.Token);

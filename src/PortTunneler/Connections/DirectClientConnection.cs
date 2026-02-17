@@ -41,6 +41,7 @@ public sealed class DirectClientConnection(ILogger<DirectClientConnection> logge
             try
             {
                 var clientSocket = await _listener!.AcceptAsync(token);
+                clientSocket.NoDelay = true;
                 logger.LogDebug("Accepted a connection on port {Port}. Service: {ServiceName}",
                     tunnelConfig.ListenPort, tunnelConfig.Name);
                 _ = HandleClientAsync(clientSocket, token).ContinueWith(
@@ -65,7 +66,8 @@ public sealed class DirectClientConnection(ILogger<DirectClientConnection> logge
     private async Task HandleClientAsync(Socket clientSocket, CancellationToken ct)
     {
         var destination = await dnsCache.ResolveAsync(tunnelConfig.TargetAddress, ct);
-        using var serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        using var serverSocket = new Socket(destination.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        serverSocket.NoDelay = true;
 
         try
         {

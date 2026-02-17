@@ -26,6 +26,7 @@ public class ServerService(ILogger<ServerService> logger, DnsCache dnsCache, Por
             try
             {
                 var clientSocket = await listener.AcceptAsync(stoppingToken);
+                clientSocket.NoDelay = true;
                 logger.LogDebug("Accepted a client connection.");
                 _ = HandleClientAsync(clientSocket, stoppingToken).ContinueWith(
                     t => logger.LogCritical(t.Exception, "Unhandled exception in HandleClientAsync."),
@@ -96,7 +97,8 @@ public class ServerService(ILogger<ServerService> logger, DnsCache dnsCache, Por
 
     private async Task HandleDirectConnectionAsync(NetworkStream clientStream, IPEndPoint destination, CancellationToken stoppingToken)
     {
-        using var localSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        using var localSocket = new Socket(destination.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        localSocket.NoDelay = true;
         try
         {
             await localSocket.ConnectAsync(destination, stoppingToken);
