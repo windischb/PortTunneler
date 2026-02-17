@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Text;
-using FluentAssertions;
 
 namespace PortTunneler.Tests.Unit;
 
@@ -16,7 +15,7 @@ public class TunnelProtocolTests
         stream.Position = 0;
         var result = await TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
 
-        result.Should().Be("hello");
+        Assert.Equal("hello", result);
     }
 
     [Fact]
@@ -26,7 +25,7 @@ public class TunnelProtocolTests
 
         var result = await TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
 
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -36,7 +35,7 @@ public class TunnelProtocolTests
 
         var result = await TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
 
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -46,9 +45,8 @@ public class TunnelProtocolTests
         BinaryPrimitives.WriteInt32LittleEndian(buffer, -1);
         var stream = new MemoryStream(buffer);
 
-        var act = () => TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
-
-        await act.Should().ThrowAsync<InvalidDataException>();
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            TunnelProtocol.ReadTagAsync(stream, CancellationToken.None));
     }
 
     [Fact]
@@ -58,9 +56,8 @@ public class TunnelProtocolTests
         BinaryPrimitives.WriteInt32LittleEndian(buffer, 70000);
         var stream = new MemoryStream(buffer);
 
-        var act = () => TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
-
-        await act.Should().ThrowAsync<InvalidDataException>();
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            TunnelProtocol.ReadTagAsync(stream, CancellationToken.None));
     }
 
     [Fact]
@@ -73,30 +70,20 @@ public class TunnelProtocolTests
         stream.Position = 0;
         var result = await TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
 
-        result.Should().Be("ping");
+        Assert.Equal("ping", result);
     }
 
     [Fact]
-    public async Task WritePong_ReadPong_RoundTrip()
+    public async Task WritePong_AsTag_RoundTrips()
     {
         var stream = new MemoryStream();
 
-        await TunnelProtocol.WritePongAsync(stream, CancellationToken.None);
+        await TunnelProtocol.WriteTagAsync(stream, "pong", CancellationToken.None);
 
         stream.Position = 0;
-        var result = await TunnelProtocol.ReadPongAsync(stream, CancellationToken.None);
+        var result = await TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
 
-        result.Should().Be("pong");
-    }
-
-    [Fact]
-    public async Task ReadPong_EmptyStream_ReturnsNull()
-    {
-        var stream = new MemoryStream();
-
-        var result = await TunnelProtocol.ReadPongAsync(stream, CancellationToken.None);
-
-        result.Should().BeNull();
+        Assert.Equal("pong", result);
     }
 
     [Fact]
@@ -104,12 +91,12 @@ public class TunnelProtocolTests
     {
         var stream = new MemoryStream();
 
-        await TunnelProtocol.WriteTagAsync(stream, "服务发现", CancellationToken.None);
+        await TunnelProtocol.WriteTagAsync(stream, "\u670D\u52A1\u53D1\u73B0", CancellationToken.None);
 
         stream.Position = 0;
         var result = await TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
 
-        result.Should().Be("服务发现");
+        Assert.Equal("\u670D\u52A1\u53D1\u73B0", result);
     }
 
     [Fact]
@@ -122,9 +109,20 @@ public class TunnelProtocolTests
         await TunnelProtocol.WriteTagAsync(stream, tag, CancellationToken.None);
 
         var data = stream.ToArray();
-        data.Length.Should().Be(4 + expectedTagBytes.Length);
-        BinaryPrimitives.ReadInt32LittleEndian(data).Should().Be(expectedTagBytes.Length);
-        Encoding.UTF8.GetString(data, 4, expectedTagBytes.Length).Should().Be(tag);
+        Assert.Equal(4 + expectedTagBytes.Length, data.Length);
+        Assert.Equal(expectedTagBytes.Length, BinaryPrimitives.ReadInt32LittleEndian(data));
+        Assert.Equal(tag, Encoding.UTF8.GetString(data, 4, expectedTagBytes.Length));
+    }
+
+    [Fact]
+    public async Task ReadTag_StreamClosedAfterHeader_ReturnsNull()
+    {
+        // Valid 4-byte header saying 5 bytes follow, but only 2 tag bytes present
+        var stream = new MemoryStream([0x05, 0x00, 0x00, 0x00, 0x68, 0x69]);
+
+        var result = await TunnelProtocol.ReadTagAsync(stream, CancellationToken.None);
+
+        Assert.Null(result);
     }
 
     [Fact]
@@ -134,8 +132,7 @@ public class TunnelProtocolTests
         await cts.CancelAsync();
         var stream = new MemoryStream([0x04, 0x00, 0x00, 0x00, 0x74, 0x65, 0x73, 0x74]);
 
-        var act = () => TunnelProtocol.ReadTagAsync(stream, cts.Token);
-
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            TunnelProtocol.ReadTagAsync(stream, cts.Token));
     }
 }

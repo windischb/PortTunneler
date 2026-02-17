@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PortTunneler is a .NET 9.0 console application that tunnels TCP connections with multiplexing and UDP-based service discovery. It acts as both server and client: the server accepts multiplexed TCP connections and forwards them to destinations, while clients discover services via UDP broadcast and connect with automatic reconnection on failure.
+PortTunneler is a .NET 10.0 console application that tunnels TCP connections with multiplexing and UDP-based service discovery. It acts as both server and client: the server accepts multiplexed TCP connections and forwards them to destinations, while clients discover services via UDP broadcast and connect with automatic reconnection on failure.
 
 ## Build & Run Commands
 
-Requires .NET SDK 9.x.
+Requires .NET SDK 10.x.
 
 ```bash
 dotnet build src/PortTunneler.sln -c Release
@@ -20,11 +20,13 @@ dotnet format src/PortTunneler.sln
 
 Service management flags: `--install-service`, `--uninstall-service`, `--start-service`, `--stop-service`
 
-No test projects exist yet. When added, use xUnit and run with:
+Tests use xUnit v3 (MTP runner) and NSubstitute. Package versions are centralized in `Directory.Packages.props`.
 ```bash
 dotnet test src/PortTunneler.sln -c Release
-dotnet test path/to/Project.Tests.csproj -c Release --filter "Name~MethodName"
+dotnet run --project tests/PortTunneler.Tests.Unit/PortTunneler.Tests.Unit.csproj
+dotnet run --project tests/PortTunneler.Tests.Unit/PortTunneler.Tests.Unit.csproj -- --filter "Name~MethodName"
 ```
+Note: `DOTNET_ROOT` must be set if dotnet is not in `/usr/share/dotnet` for `dotnet test` to work with MTP.
 
 ## Architecture
 
@@ -49,7 +51,7 @@ dotnet test path/to/Project.Tests.csproj -c Release --filter "Name~MethodName"
 
 - **UDP discovery** (port 7608): client broadcasts UTF-8 service name, server responds with UTF-8 port number
 - **TCP multiplexing header**: 4-byte little-endian length prefix + UTF-8 service name bytes
-- **Heartbeat**: "ping"/"pong" over the multiplexing protocol
+- **Heartbeat**: "ping"/"pong" as length-prefixed tags (same framing as service name headers)
 
 If you change ports or wire format, update both server and all client connection types.
 

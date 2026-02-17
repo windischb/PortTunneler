@@ -69,6 +69,7 @@ internal class Program
                 .ConfigureServices((_, services) =>
                 {
                     services.AddSingleton(config);
+                    services.AddSingleton<DnsCache>();
                     services.AddSingleton<DestinationMonitorRegistry>();
                     services.AddSingleton<IClientConnectionFactory, ClientConnectionFactory>();
                     services.AddHostedService<ClientConnectionManager>();

@@ -1,5 +1,4 @@
 using System.Text;
-using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,7 +14,7 @@ public class MultiplexingTunnelIntegrationTests : IAsyncLifetime
     private System.Net.Sockets.TcpListener _echoServer = null!;
     private IHost? _serverHost;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         _cts = new CancellationTokenSource();
         _echoPort = TestHelpers.GetAvailablePort();
@@ -41,6 +40,7 @@ public class MultiplexingTunnelIntegrationTests : IAsyncLifetime
             .ConfigureServices(services =>
             {
                 services.AddSingleton(serverConfig);
+                services.AddSingleton<DnsCache>();
                 services.AddSingleton<DestinationMonitorRegistry>();
                 services.AddHostedService<ServerService>();
             })
@@ -50,7 +50,7 @@ public class MultiplexingTunnelIntegrationTests : IAsyncLifetime
         await Task.Delay(200); // Let server start listening
     }
 
-    public async Task DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
         if (_serverHost != null)
@@ -73,7 +73,7 @@ public class MultiplexingTunnelIntegrationTests : IAsyncLifetime
         };
 
         using var connection = new Connections.MultiplexingClientConnection(
-            NullLogger<Connections.MultiplexingClientConnection>.Instance, tunnelConfig);
+            NullLogger<Connections.MultiplexingClientConnection>.Instance, new DnsCache(), tunnelConfig);
         connection.StartListening();
 
         await Task.Delay(200);
@@ -87,7 +87,7 @@ public class MultiplexingTunnelIntegrationTests : IAsyncLifetime
         var buffer = new byte[1024];
         var bytesRead = await stream.ReadAsync(buffer);
 
-        Encoding.UTF8.GetString(buffer, 0, bytesRead).Should().Be("Hello via multiplexing!");
+        Assert.Equal("Hello via multiplexing!", Encoding.UTF8.GetString(buffer, 0, bytesRead));
 
         await connection.StopAsync(CancellationToken.None);
     }

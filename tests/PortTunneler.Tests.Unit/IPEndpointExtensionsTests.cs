@@ -1,5 +1,4 @@
 using System.Net;
-using FluentAssertions;
 
 namespace PortTunneler.Tests.Unit;
 
@@ -9,7 +8,7 @@ public class IPEndpointExtensionsTests
     public void ToIpEndpoint_Null_ReturnsNull()
     {
         string? value = null;
-        value.ToIpEndpoint().Should().BeNull();
+        Assert.Null(value.ToIpEndpoint());
     }
 
     [Fact]
@@ -17,9 +16,9 @@ public class IPEndpointExtensionsTests
     {
         var result = "127.0.0.1:8080".ToIpEndpoint();
 
-        result.Should().NotBeNull();
-        result!.Address.Should().Be(IPAddress.Loopback);
-        result.Port.Should().Be(8080);
+        Assert.NotNull(result);
+        Assert.Equal(IPAddress.Loopback, result.Address);
+        Assert.Equal(8080, result.Port);
     }
 
     [Fact]
@@ -27,8 +26,8 @@ public class IPEndpointExtensionsTests
     {
         var result = "192.168.1.1:443".ToIpEndpoint();
 
-        result.Should().NotBeNull();
-        result!.Port.Should().Be(443);
+        Assert.NotNull(result);
+        Assert.Equal(443, result.Port);
     }
 
     [Fact]
@@ -36,16 +35,17 @@ public class IPEndpointExtensionsTests
     {
         var result = IpEndpointExtensions.ParseEndpointOrThrow("10.0.0.1:51000", "test");
 
-        result.Address.Should().Be(IPAddress.Parse("10.0.0.1"));
-        result.Port.Should().Be(51000);
+        Assert.Equal(IPAddress.Parse("10.0.0.1"), result.Address);
+        Assert.Equal(51000, result.Port);
     }
 
     [Fact]
     public void ParseEndpointOrThrow_InvalidInput_Throws()
     {
-        var act = () => IpEndpointExtensions.ParseEndpointOrThrow("not-valid", "TestField");
+        var ex = Assert.Throws<ArgumentException>(() =>
+            IpEndpointExtensions.ParseEndpointOrThrow("not-valid", "TestField"));
 
-        act.Should().Throw<ArgumentException>().WithMessage("*TestField*");
+        Assert.Contains("TestField", ex.Message);
     }
 
     [Fact]
@@ -53,6 +53,6 @@ public class IPEndpointExtensionsTests
     {
         var result = "garbage".ToIpEndpoint();
 
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 }

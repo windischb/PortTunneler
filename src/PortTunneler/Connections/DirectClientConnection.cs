@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 
 namespace PortTunneler.Connections;
 
-public sealed class DirectClientConnection(ILogger<DirectClientConnection> logger, DirectTunnelConfig tunnelConfig)
+public sealed class DirectClientConnection(ILogger<DirectClientConnection> logger, DnsCache dnsCache, DirectTunnelConfig tunnelConfig)
     : IClientConnection
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
@@ -64,7 +64,7 @@ public sealed class DirectClientConnection(ILogger<DirectClientConnection> logge
 
     private async Task HandleClientAsync(Socket clientSocket, CancellationToken ct)
     {
-        var destination = IpEndpointExtensions.ParseEndpointOrThrow(tunnelConfig.TargetAddress, "TargetAddress");
+        var destination = await dnsCache.ResolveAsync(tunnelConfig.TargetAddress, ct);
         using var serverSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
         try

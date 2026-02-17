@@ -9,6 +9,7 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
 {
     private readonly int _discoveryPort;
     private readonly string _serviceName;
+    private readonly string _wireTag;
     private readonly int _listenPort;
     private bool _isDiscoveryActive;
     private readonly Lock _discoveryLock = new();
@@ -29,6 +30,7 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
         _multiplexingLogger = multiplexingLogger;
         _monitorRegistry = monitorRegistry;
         _serviceName = tunnelConfig.Name;
+        _wireTag = tunnelConfig.WireTag;
         _listenPort = tunnelConfig.ListenPort;
         _discoveryPort = tunnelConfig.DiscoveryPort;
     }
@@ -54,6 +56,11 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
     {
         _destinationMonitor?.UnregisterClient(this);
         _destinationMonitor = null;
+        if (_tunnelClientConnection != null)
+        {
+            await _tunnelClientConnection.DisposeAsync();
+            _tunnelClientConnection = null;
+        }
         await StopAsync(_cts.Token);
         var oldCts = _cts;
         _cts = new CancellationTokenSource();
@@ -74,14 +81,15 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
 
         try
         {
+            using var udpClient = new UdpClient();
+            udpClient.EnableBroadcast = true;
             while (!token.IsCancellationRequested)
             {
-                using var udpClient = new UdpClient();
                 try
                 {
                     _logger.LogDebug("Discovering {ServiceName}...", _serviceName);
 
-                    var requestData = Encoding.UTF8.GetBytes(_serviceName);
+                    var requestData = Encoding.UTF8.GetBytes(_wireTag);
                     var broadcastEp = new IPEndPoint(IPAddress.Broadcast, _discoveryPort);
 
                     await udpClient.SendAsync(requestData, requestData.Length, broadcastEp);
@@ -90,7 +98,7 @@ public sealed class DiscoverClientConnection : IClientConnection, IMonitorableCl
                     if (response != null)
                     {
                         _tunnelClientConnection = new MultiplexingClientConnection(
-                            _multiplexingLogger, _serviceName, _listenPort, response);
+                            _multiplexingLogger, _wireTag, _listenPort, response);
                         _tunnelClientConnection.StartListening();
 
                         _destinationMonitor = _monitorRegistry.GetOrCreateMonitor(response);

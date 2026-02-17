@@ -20,6 +20,8 @@ public abstract class TunnelConfig
 {
     public required string Name { get; init; }
     public required int ListenPort { get; init; }
+    public string? ServiceTag { get; init; }
+    public string WireTag => ServiceTag ?? Name;
 }
 
 public sealed class DiscoverTunnelConfig : TunnelConfig
@@ -48,4 +50,6 @@ public sealed class ExposedServiceConfig
 {
     public required string Name { get; init; }
     public required string TargetAddress { get; init; }
+    public string? ServiceTag { get; init; }
+    public string WireTag => ServiceTag ?? Name;
 }

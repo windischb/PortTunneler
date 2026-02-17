@@ -23,29 +23,11 @@ public static class IpEndpointExtensions
 
     private static IPEndPoint? ParseHostPort(string value)
     {
-        var colonIndex = value.LastIndexOf(':');
-        if (colonIndex <= 0 || colonIndex == value.Length - 1)
-            return null;
-
-        var host = value[..colonIndex];
-        var portStr = value[(colonIndex + 1)..];
-
-        if (!int.TryParse(portStr, out var port) || port is < 1 or > 65535)
+        if (!DnsCache.TryParseHostPort(value, out var host, out var port))
             return null;
 
         if (IPAddress.TryParse(host, out var address))
             return new IPEndPoint(address, port);
-
-        try
-        {
-            var addresses = Dns.GetHostAddresses(host);
-            if (addresses.Length > 0)
-                return new IPEndPoint(addresses[0], port);
-        }
-        catch
-        {
-            // Resolution failed
-        }
 
         return null;
     }

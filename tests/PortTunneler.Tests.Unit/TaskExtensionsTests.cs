@@ -1,5 +1,3 @@
-using FluentAssertions;
-
 namespace PortTunneler.Tests.Unit;
 
 public class TaskExtensionsTests
@@ -11,7 +9,7 @@ public class TaskExtensionsTests
 
         var result = await task.TimeoutAfter(TimeSpan.FromSeconds(5));
 
-        result.Should().Be(42);
+        Assert.Equal(42, result);
     }
 
     [Fact]
@@ -19,9 +17,7 @@ public class TaskExtensionsTests
     {
         var task = Task.Delay(TimeSpan.FromSeconds(30)).ContinueWith(_ => 42);
 
-        var act = () => task.TimeoutAfter(TimeSpan.FromMilliseconds(50));
-
-        await act.Should().ThrowAsync<TimeoutException>();
+        await Assert.ThrowsAsync<TimeoutException>(() => task.TimeoutAfter(TimeSpan.FromMilliseconds(50)));
     }
 
     [Fact]
@@ -31,8 +27,8 @@ public class TaskExtensionsTests
 
         var (isCompleted, result) = await task.WithTimeout(TimeSpan.FromSeconds(5));
 
-        isCompleted.Should().BeTrue();
-        result.Should().Be(42);
+        Assert.True(isCompleted);
+        Assert.Equal(42, result);
     }
 
     [Fact]
@@ -42,8 +38,8 @@ public class TaskExtensionsTests
 
         var (isCompleted, result) = await task.WithTimeout(TimeSpan.FromMilliseconds(50));
 
-        isCompleted.Should().BeFalse();
-        result.Should().Be(0);
+        Assert.False(isCompleted);
+        Assert.Equal(0, result);
     }
 
     [Fact]
@@ -53,8 +49,6 @@ public class TaskExtensionsTests
         await cts.CancelAsync();
         var task = Task.Delay(TimeSpan.FromSeconds(30)).ContinueWith(_ => 42);
 
-        var act = () => task.WithTimeout(TimeSpan.FromSeconds(5), cts.Token);
-
-        await act.Should().ThrowAsync<OperationCanceledException>();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task.WithTimeout(TimeSpan.FromSeconds(5), cts.Token));
     }
 }

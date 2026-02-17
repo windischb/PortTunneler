@@ -41,24 +41,33 @@ public sealed class TunnelConfigJsonConverter : JsonConverter<TunnelConfig>
 
     public override void Write(Utf8JsonWriter writer, TunnelConfig value, JsonSerializerOptions options)
     {
-        var innerOptions = new JsonSerializerOptions
+        writer.WriteStartObject();
+
+        writer.WriteString("Name", value.Name);
+        writer.WriteNumber("ListenPort", value.ListenPort);
+
+        if (value.ServiceTag != null)
         {
-            PropertyNameCaseInsensitive = true
-        };
+            writer.WriteString("ServiceTag", value.ServiceTag);
+        }
 
         switch (value)
         {
             case DiscoverTunnelConfig discover:
-                JsonSerializer.Serialize(writer, discover, innerOptions);
+                writer.WriteNumber("DiscoveryPort", discover.DiscoveryPort);
                 break;
             case TunnelTunnelConfig tunnel:
-                JsonSerializer.Serialize(writer, tunnel, innerOptions);
+                writer.WriteString("Mode", "Tunnel");
+                writer.WriteString("ServerAddress", tunnel.ServerAddress);
                 break;
             case DirectTunnelConfig direct:
-                JsonSerializer.Serialize(writer, direct, innerOptions);
+                writer.WriteString("Mode", "Direct");
+                writer.WriteString("TargetAddress", direct.TargetAddress);
                 break;
             default:
                 throw new JsonException($"Unknown tunnel config type: {value.GetType().Name}");
         }
+
+        writer.WriteEndObject();
     }
 }

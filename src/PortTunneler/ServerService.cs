@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace PortTunneler;
 
-public class ServerService(ILogger<ServerService> logger, PortTunnelerConfig config) : BackgroundService
+public class ServerService(ILogger<ServerService> logger, DnsCache dnsCache, PortTunnelerConfig config) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -61,19 +61,18 @@ public class ServerService(ILogger<ServerService> logger, PortTunnelerConfig con
 
                 if (tag == "ping")
                 {
-                    await TunnelProtocol.WritePongAsync(clientStream, stoppingToken);
+                    await TunnelProtocol.WriteTagAsync(clientStream, "pong", stoppingToken);
                     continue;
                 }
 
-                var offeredService = config.Server!.Services.FirstOrDefault(s => s.Name == tag);
+                var offeredService = config.Server!.Services.FirstOrDefault(s => s.WireTag == tag);
                 if (offeredService == null)
                 {
                     logger.LogWarning("No matching service found for tag: {Tag}", tag);
                     continue;
                 }
 
-                var targetEndpoint = IpEndpointExtensions.ParseEndpointOrThrow(
-                    offeredService.TargetAddress, $"Server.Services[{tag}].TargetAddress");
+                var targetEndpoint = await dnsCache.ResolveAsync(offeredService.TargetAddress, stoppingToken);
                 await HandleDirectConnectionAsync(clientStream, targetEndpoint, stoppingToken);
             }
         }

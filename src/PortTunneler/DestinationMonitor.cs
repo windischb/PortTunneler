@@ -68,7 +68,7 @@ public class DestinationMonitor(IPEndPoint destination, ILogger<DestinationMonit
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
             await _socket.ConnectAsync(destination, token);
 
-            var networkStream = new NetworkStream(_socket, ownsSocket: false);
+            await using var networkStream = new NetworkStream(_socket, ownsSocket: false);
 
             while (!token.IsCancellationRequested)
             {
@@ -77,7 +77,7 @@ public class DestinationMonitor(IPEndPoint destination, ILogger<DestinationMonit
                     await TunnelProtocol.WriteTagAsync(networkStream, "ping", token);
                     await networkStream.FlushAsync(token);
 
-                    var pongMessage = await TunnelProtocol.ReadPongAsync(networkStream, token);
+                    var pongMessage = await TunnelProtocol.ReadTagAsync(networkStream, token);
                     if (pongMessage == null)
                     {
                         logger.LogWarning("Connection to {Destination} was closed by the remote host.", destination);

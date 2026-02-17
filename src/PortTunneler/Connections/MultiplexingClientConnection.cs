@@ -9,31 +9,38 @@ public sealed class MultiplexingClientConnection : IClientConnection
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
     private readonly ILogger<MultiplexingClientConnection> _logger;
     private readonly string _serviceName;
+    private readonly string _wireTag;
     private readonly int _listenPort;
-    private readonly IPEndPoint _serverEndpoint;
+    private readonly DnsCache _dnsCache;
+    private readonly string _serverAddress;
     private readonly CancellationTokenSource _cts = new();
     private Socket? _listener;
 
     public MultiplexingClientConnection(
         ILogger<MultiplexingClientConnection> logger,
+        DnsCache dnsCache,
         TunnelTunnelConfig tunnelConfig)
     {
         _logger = logger;
+        _dnsCache = dnsCache;
         _serviceName = tunnelConfig.Name;
+        _wireTag = tunnelConfig.WireTag;
         _listenPort = tunnelConfig.ListenPort;
-        _serverEndpoint = IpEndpointExtensions.ParseEndpointOrThrow(tunnelConfig.ServerAddress, "ServerAddress");
+        _serverAddress = tunnelConfig.ServerAddress;
     }
 
     internal MultiplexingClientConnection(
         ILogger<MultiplexingClientConnection> logger,
-        string serviceName,
+        string wireTag,
         int listenPort,
         IPEndPoint serverEndpoint)
     {
         _logger = logger;
-        _serviceName = serviceName;
+        _dnsCache = new DnsCache();
+        _serviceName = wireTag;
+        _wireTag = wireTag;
         _listenPort = listenPort;
-        _serverEndpoint = serverEndpoint;
+        _serverAddress = serverEndpoint.ToString();
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -52,7 +59,7 @@ public sealed class MultiplexingClientConnection : IClientConnection
         _listener.Bind(new IPEndPoint(IPAddress.Any, _listenPort));
         _listener.Listen(100);
         _logger.LogInformation("Listening on port {Port} for multiplexed connections to {Server} for service {ServiceName}...",
-            _listenPort, _serverEndpoint, _serviceName);
+            _listenPort, _serverAddress, _serviceName);
         _ = AcceptClientsAsync().ContinueWith(
             t => _logger.LogCritical(t.Exception, "Unhandled exception in AcceptClientsAsync."),
             TaskContinuationOptions.OnlyOnFaulted);
@@ -93,17 +100,18 @@ public sealed class MultiplexingClientConnection : IClientConnection
 
         try
         {
+            var endpoint = await _dnsCache.ResolveAsync(_serverAddress, ct);
             using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             connectCts.CancelAfter(ConnectTimeout);
-            await serverSocket.ConnectAsync(_serverEndpoint, connectCts.Token);
+            await serverSocket.ConnectAsync(endpoint, connectCts.Token);
 
             await using var serverStream = new NetworkStream(serverSocket, ownsSocket: true);
             await using var clientStream = new NetworkStream(clientSocket, ownsSocket: true);
 
-            if (!string.IsNullOrEmpty(_serviceName))
+            if (!string.IsNullOrEmpty(_wireTag))
             {
-                _logger.LogDebug("Sending service name {ServiceName} to the server.", _serviceName);
-                await TunnelProtocol.WriteTagAsync(serverStream, _serviceName, ct);
+                _logger.LogDebug("Sending service tag {ServiceTag} to the server.", _wireTag);
+                await TunnelProtocol.WriteTagAsync(serverStream, _wireTag, ct);
             }
 
             var clientToServerTask = TcpForwarder.ForwardAsync(clientStream, serverStream, _logger, "Client to Server", ct);

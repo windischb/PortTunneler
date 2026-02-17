@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 
@@ -20,9 +19,7 @@ public class ConfigValidationTests
             ]
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
-
-        act.Should().NotThrow();
+        ConfigValidator.Validate(config, _logger);
     }
 
     [Fact]
@@ -37,9 +34,11 @@ public class ConfigValidationTests
             ]
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*port 1433*already used*");
+        Assert.Contains("port 1433", ex.Message);
+        Assert.Contains("already used", ex.Message);
     }
 
     [Fact]
@@ -50,9 +49,10 @@ public class ConfigValidationTests
             Tunnels = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 0 }]
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*not a valid port*");
+        Assert.Contains("not a valid port", ex.Message);
     }
 
     [Fact]
@@ -63,9 +63,10 @@ public class ConfigValidationTests
             Tunnels = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 99999 }]
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*not a valid port*");
+        Assert.Contains("not a valid port", ex.Message);
     }
 
     [Fact]
@@ -76,9 +77,10 @@ public class ConfigValidationTests
             Tunnels = [new DiscoverTunnelConfig { Name = "", ListenPort = 1433 }]
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*must not be empty*");
+        Assert.Contains("must not be empty", ex.Message);
     }
 
     [Fact]
@@ -89,9 +91,11 @@ public class ConfigValidationTests
             Tunnels = [new DirectTunnelConfig { Name = "sql", ListenPort = 1433, TargetAddress = "not-valid" }]
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*TargetAddress*not a valid endpoint*");
+        Assert.Contains("TargetAddress", ex.Message);
+        Assert.Contains("not a valid endpoint", ex.Message);
     }
 
     [Fact]
@@ -102,9 +106,11 @@ public class ConfigValidationTests
             Tunnels = [new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "badaddr" }]
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*ServerAddress*not a valid endpoint*");
+        Assert.Contains("ServerAddress", ex.Message);
+        Assert.Contains("not a valid endpoint", ex.Message);
     }
 
     [Fact]
@@ -140,9 +146,10 @@ public class ConfigValidationTests
             }
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*duplicate service name*");
+        Assert.Contains("duplicate service wire tag", ex.Message);
     }
 
     [Fact]
@@ -153,9 +160,10 @@ public class ConfigValidationTests
             Server = new ServerConfig { ListenPort = 0 }
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*not a valid port*");
+        Assert.Contains("not a valid port", ex.Message);
     }
 
     [Fact]
@@ -169,9 +177,11 @@ public class ConfigValidationTests
             }
         };
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*TargetAddress*not a valid endpoint*");
+        Assert.Contains("TargetAddress", ex.Message);
+        Assert.Contains("not a valid endpoint", ex.Message);
     }
 
     [Fact]
@@ -179,8 +189,99 @@ public class ConfigValidationTests
     {
         var config = new PortTunnelerConfig();
 
-        var act = () => ConfigValidator.Validate(config, _logger);
+        ConfigValidator.Validate(config, _logger);
+    }
 
-        act.Should().NotThrow();
+    [Fact]
+    public void Validate_IPv6BracketedEndpoint_DoesNotThrow()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels =
+            [
+                new DirectTunnelConfig { Name = "sql", ListenPort = 1433, TargetAddress = "[::1]:1433" }
+            ]
+        };
+
+        ConfigValidator.Validate(config, _logger);
+    }
+
+    [Fact]
+    public void Validate_HostnameEndpoint_DoesNotThrow()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels =
+            [
+                new TunnelTunnelConfig { Name = "sql", ListenPort = 1433, ServerAddress = "myhost:51000" }
+            ]
+        };
+
+        ConfigValidator.Validate(config, _logger);
+    }
+
+    [Fact]
+    public void Validate_HostnameServiceTarget_DoesNotThrow()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Server = new ServerConfig
+            {
+                Services = [new ExposedServiceConfig { Name = "sql", TargetAddress = "dbserver:1433" }]
+            }
+        };
+
+        ConfigValidator.Validate(config, _logger);
+    }
+
+    [Fact]
+    public void Validate_DuplicateWireTag_Throws()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels =
+            [
+                new DiscoverTunnelConfig { Name = "Display Name 1", ListenPort = 1433, ServiceTag = "sql" },
+                new DiscoverTunnelConfig { Name = "Display Name 2", ListenPort = 1434, ServiceTag = "sql" }
+            ]
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
+
+        Assert.Contains("duplicate wire tag", ex.Message);
+    }
+
+    [Fact]
+    public void Validate_EmptyServiceTag_Throws()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels = [new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433, ServiceTag = " " }]
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
+
+        Assert.Contains("ServiceTag", ex.Message);
+        Assert.Contains("must not be empty", ex.Message);
+    }
+
+    [Fact]
+    public void Validate_DifferentNamesButSameWireTag_ViaDefault_Throws()
+    {
+        var config = new PortTunnelerConfig
+        {
+            Tunnels =
+            [
+                new DiscoverTunnelConfig { Name = "sql", ListenPort = 1433 },
+                new DiscoverTunnelConfig { Name = "other", ListenPort = 1434, ServiceTag = "sql" }
+            ]
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ConfigValidator.Validate(config, _logger));
+
+        Assert.Contains("duplicate wire tag", ex.Message);
     }
 }

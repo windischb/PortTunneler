@@ -1,4 +1,3 @@
-using System.Net;
 using Microsoft.Extensions.Logging;
 
 namespace PortTunneler;
@@ -28,7 +27,7 @@ public static class ConfigValidator
     private static void ValidateTunnels(IReadOnlyList<TunnelConfig> tunnels, List<string> errors, List<string> warnings)
     {
         var usedPorts = new HashSet<int>();
-        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var usedWireTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < tunnels.Count; i++)
         {
@@ -39,9 +38,15 @@ public static class ConfigValidator
             {
                 errors.Add($"{prefix}.Name: must not be empty.");
             }
-            else if (!usedNames.Add(tunnel.Name))
+
+            if (tunnel.ServiceTag != null && string.IsNullOrWhiteSpace(tunnel.ServiceTag))
             {
-                warnings.Add($"{prefix}.Name: duplicate tunnel name '{tunnel.Name}'.");
+                errors.Add($"{prefix}.ServiceTag: must not be empty when specified.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(tunnel.WireTag) && !usedWireTags.Add(tunnel.WireTag))
+            {
+                errors.Add($"{prefix}.WireTag: duplicate wire tag '{tunnel.WireTag}'.");
             }
 
             if (tunnel.ListenPort is < 1 or > 65535)
@@ -63,14 +68,14 @@ public static class ConfigValidator
                     break;
 
                 case TunnelTunnelConfig tunnelMode:
-                    if (!TryParseEndpoint(tunnelMode.ServerAddress, out _))
+                    if (!TryParseEndpoint(tunnelMode.ServerAddress))
                     {
                         errors.Add($"{prefix}.ServerAddress: '{tunnelMode.ServerAddress}' is not a valid endpoint (expected host:port).");
                     }
                     break;
 
                 case DirectTunnelConfig direct:
-                    if (!TryParseEndpoint(direct.TargetAddress, out _))
+                    if (!TryParseEndpoint(direct.TargetAddress))
                     {
                         errors.Add($"{prefix}.TargetAddress: '{direct.TargetAddress}' is not a valid endpoint (expected host:port).");
                     }
@@ -101,7 +106,7 @@ public static class ConfigValidator
             warnings.Add($"{prefix}.Services: no services configured — server will accept connections but match nothing.");
         }
 
-        var serviceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var serviceWireTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < server.Services.Count; i++)
         {
             var svc = server.Services[i];
@@ -111,61 +116,29 @@ public static class ConfigValidator
             {
                 errors.Add($"{svcPrefix}.Name: must not be empty.");
             }
-            else if (!serviceNames.Add(svc.Name))
+
+            if (svc.ServiceTag != null && string.IsNullOrWhiteSpace(svc.ServiceTag))
             {
-                errors.Add($"{svcPrefix}.Name: duplicate service name '{svc.Name}'.");
+                errors.Add($"{svcPrefix}.ServiceTag: must not be empty when specified.");
             }
 
-            if (!TryParseEndpoint(svc.TargetAddress, out _))
+            if (!string.IsNullOrWhiteSpace(svc.WireTag) && !serviceWireTags.Add(svc.WireTag))
+            {
+                errors.Add($"{svcPrefix}.WireTag: duplicate service wire tag '{svc.WireTag}'.");
+            }
+
+            if (!TryParseEndpoint(svc.TargetAddress))
             {
                 errors.Add($"{svcPrefix}.TargetAddress: '{svc.TargetAddress}' is not a valid endpoint (expected host:port).");
             }
         }
     }
 
-    private static bool TryParseEndpoint(string? value, out IPEndPoint? endpoint)
+    private static bool TryParseEndpoint(string? value)
     {
-        endpoint = null;
         if (string.IsNullOrWhiteSpace(value))
             return false;
 
-        return IPEndPoint.TryParse(value, out endpoint) || TryParseHostPort(value, out endpoint);
-    }
-
-    private static bool TryParseHostPort(string value, out IPEndPoint? endpoint)
-    {
-        endpoint = null;
-        var colonIndex = value.LastIndexOf(':');
-        if (colonIndex <= 0 || colonIndex == value.Length - 1)
-            return false;
-
-        var host = value[..colonIndex];
-        var portStr = value[(colonIndex + 1)..];
-
-        if (!int.TryParse(portStr, out var port) || port is < 1 or > 65535)
-            return false;
-
-        if (IPAddress.TryParse(host, out var address))
-        {
-            endpoint = new IPEndPoint(address, port);
-            return true;
-        }
-
-        // DNS hostname — resolve it
-        try
-        {
-            var addresses = Dns.GetHostAddresses(host);
-            if (addresses.Length > 0)
-            {
-                endpoint = new IPEndPoint(addresses[0], port);
-                return true;
-            }
-        }
-        catch
-        {
-            // Resolution failed
-        }
-
-        return false;
+        return DnsCache.TryParseHostPort(value, out _, out _);
     }
 }

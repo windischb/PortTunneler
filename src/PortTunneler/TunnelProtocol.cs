@@ -23,7 +23,14 @@ public static class TunnelProtocol
             throw new InvalidDataException($"Invalid tag length: {tagLength}");
 
         var tagBuffer = new byte[tagLength];
-        await stream.ReadExactlyAsync(tagBuffer, cancellationToken);
+        try
+        {
+            await stream.ReadExactlyAsync(tagBuffer, cancellationToken);
+        }
+        catch (EndOfStreamException)
+        {
+            return null;
+        }
 
         return Encoding.UTF8.GetString(tagBuffer);
     }
@@ -38,25 +45,4 @@ public static class TunnelProtocol
         await stream.WriteAsync(tagBytes, cancellationToken);
     }
 
-    public static async Task WritePongAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        var pongBuffer = "pong"u8.ToArray();
-        await stream.WriteAsync(pongBuffer, cancellationToken);
-        await stream.FlushAsync(cancellationToken);
-    }
-
-    public static async Task<string?> ReadPongAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[4];
-        try
-        {
-            await stream.ReadExactlyAsync(buffer, cancellationToken);
-        }
-        catch (EndOfStreamException)
-        {
-            return null;
-        }
-
-        return Encoding.UTF8.GetString(buffer);
-    }
 }

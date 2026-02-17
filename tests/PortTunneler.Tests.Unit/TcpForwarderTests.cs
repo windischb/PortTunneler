@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 
@@ -17,7 +16,7 @@ public class TcpForwarderTests
 
         await TcpForwarder.ForwardAsync(input, output, _logger, "Test", CancellationToken.None);
 
-        output.ToArray().Should().Equal(sourceData);
+        Assert.Equal(sourceData, output.ToArray());
     }
 
     [Fact]
@@ -28,7 +27,7 @@ public class TcpForwarderTests
 
         await TcpForwarder.ForwardAsync(input, output, _logger, "Test", CancellationToken.None);
 
-        output.ToArray().Should().BeEmpty();
+        Assert.Empty(output.ToArray());
     }
 
     [Fact]
@@ -41,7 +40,7 @@ public class TcpForwarderTests
 
         await TcpForwarder.ForwardAsync(input, output, _logger, "Test", CancellationToken.None);
 
-        output.ToArray().Should().Equal(sourceData);
+        Assert.Equal(sourceData, output.ToArray());
     }
 
     [Fact]

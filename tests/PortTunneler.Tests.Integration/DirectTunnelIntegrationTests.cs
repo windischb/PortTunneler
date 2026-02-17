@@ -1,5 +1,4 @@
 using System.Text;
-using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PortTunneler.Connections;
 
@@ -12,7 +11,7 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
     private int _listenPort;
     private System.Net.Sockets.TcpListener _echoServer = null!;
 
-    public async Task InitializeAsync()
+    public async ValueTask InitializeAsync()
     {
         _cts = new CancellationTokenSource();
         _echoPort = TestHelpers.GetAvailablePort();
@@ -20,12 +19,12 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
         _echoServer = await TestHelpers.StartEchoServer(_echoPort, _cts.Token);
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         _cts.Cancel();
         _echoServer.Stop();
         _cts.Dispose();
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     [Fact]
@@ -38,7 +37,7 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
             TargetAddress = $"127.0.0.1:{_echoPort}"
         };
 
-        using var connection = new DirectClientConnection(NullLogger<DirectClientConnection>.Instance, config);
+        using var connection = new DirectClientConnection(NullLogger<DirectClientConnection>.Instance, new DnsCache(), config);
         connection.StartListening();
 
         await Task.Delay(100); // Let listener start
@@ -52,7 +51,7 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
         var buffer = new byte[1024];
         var bytesRead = await stream.ReadAsync(buffer);
 
-        Encoding.UTF8.GetString(buffer, 0, bytesRead).Should().Be("Hello, Echo!");
+        Assert.Equal("Hello, Echo!", Encoding.UTF8.GetString(buffer, 0, bytesRead));
 
         await connection.StopAsync(CancellationToken.None);
     }
@@ -67,7 +66,7 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
             TargetAddress = $"127.0.0.1:{_echoPort}"
         };
 
-        using var connection = new DirectClientConnection(NullLogger<DirectClientConnection>.Instance, config);
+        using var connection = new DirectClientConnection(NullLogger<DirectClientConnection>.Instance, new DnsCache(), config);
         connection.StartListening();
 
         await Task.Delay(100);
@@ -83,7 +82,7 @@ public class DirectTunnelIntegrationTests : IAsyncLifetime
             var buffer = new byte[1024];
             var bytesRead = await stream.ReadAsync(buffer);
 
-            Encoding.UTF8.GetString(buffer, 0, bytesRead).Should().Be($"Message {i}");
+            Assert.Equal($"Message {i}", Encoding.UTF8.GetString(buffer, 0, bytesRead));
         }
 
         await connection.StopAsync(CancellationToken.None);

@@ -24,11 +24,11 @@ public sealed class ClientConnectionManager(
         return connection;
     }
 
-    public async Task RemoveAsync(int localPort)
+    public async Task RemoveAsync(int localPort, CancellationToken cancellationToken = default)
     {
         if (Connections.TryRemove(localPort, out var clientService))
         {
-            await clientService.StopAsync(default);
+            await clientService.StopAsync(cancellationToken);
             await clientService.DisposeAsync();
         }
     }
@@ -48,7 +48,7 @@ public sealed class ClientConnectionManager(
     {
         foreach (var key in Connections.Keys)
         {
-            await RemoveAsync(key);
+            await RemoveAsync(key, cancellationToken);
         }
     }
 }

@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -15,6 +14,7 @@ public class ClientConnectionFactoryTests
         var services = new ServiceCollection();
         services.AddSingleton<ILoggerFactory, NullLoggerFactory>();
         services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+        services.AddSingleton<DnsCache>();
         services.AddSingleton(new DestinationMonitorRegistry(
             NullLogger<DestinationMonitor>.Instance));
         var sp = services.BuildServiceProvider();
@@ -28,7 +28,7 @@ public class ClientConnectionFactoryTests
 
         using var connection = _factory.Create(config);
 
-        connection.Should().BeOfType<DirectClientConnection>();
+        Assert.IsType<DirectClientConnection>(connection);
     }
 
     [Fact]
@@ -38,7 +38,7 @@ public class ClientConnectionFactoryTests
 
         using var connection = _factory.Create(config);
 
-        connection.Should().BeOfType<MultiplexingClientConnection>();
+        Assert.IsType<MultiplexingClientConnection>(connection);
     }
 
     [Fact]
@@ -48,6 +48,6 @@ public class ClientConnectionFactoryTests
 
         using var connection = _factory.Create(config);
 
-        connection.Should().BeOfType<DiscoverClientConnection>();
+        Assert.IsType<DiscoverClientConnection>(connection);
     }
 }

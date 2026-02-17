@@ -10,6 +10,7 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
     : BackgroundService
 {
     private UdpClient? _udpClient;
+    private HashSet<IPAddress>? _localIpAddresses;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -19,6 +20,7 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
         var discoveryPort = config.Server.DiscoveryPort;
         var listenPort = config.Server.ListenPort;
 
+        _localIpAddresses = GetLocalIpAddresses();
         _udpClient = new UdpClient(discoveryPort);
         logger.LogInformation("Listening for UDP discovery requests on port {Port}...", discoveryPort);
 
@@ -28,7 +30,7 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
             {
                 var result = await _udpClient.ReceiveAsync(stoppingToken);
                 // Check if the message is from this machine
-                if (result.RemoteEndPoint.Address.Equals(GetLocalIpAddress()))
+                if (_localIpAddresses!.Contains(result.RemoteEndPoint.Address))
                 {
                     logger.LogDebug("Ignored broadcast message from self.");
                     continue;
@@ -39,7 +41,7 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
                 logger.LogDebug("Received discovery request for service {ServiceName} from {RemoteEndPoint}.",
                     requestMessage, result.RemoteEndPoint);
 
-                if (config.Server.Services.Any(s => s.Name == requestMessage))
+                if (config.Server.Services.Any(s => s.WireTag == requestMessage))
                 {
                     var responseMessage = listenPort.ToString();
                     var responseData = Encoding.UTF8.GetBytes(responseMessage);
@@ -64,17 +66,16 @@ public class ServiceDiscoveryHostedService(ILogger<ServiceDiscoveryHostedService
         }
     }
 
-    private static IPAddress GetLocalIpAddress()
+    private static HashSet<IPAddress> GetLocalIpAddresses()
     {
         var host = Dns.GetHostEntry(Dns.GetHostName());
-        foreach (var ip in host.AddressList)
-        {
-            if (ip.AddressFamily == AddressFamily.InterNetwork)
-            {
-                return ip;
-            }
-        }
-        throw new InvalidOperationException("No network adapters with an IPv4 address in the system!");
+        var addresses = new HashSet<IPAddress>(
+            host.AddressList.Where(ip => ip.AddressFamily == AddressFamily.InterNetwork));
+
+        if (addresses.Count == 0)
+            throw new InvalidOperationException("No network adapters with an IPv4 address in the system!");
+
+        return addresses;
     }
 
     public override void Dispose()
