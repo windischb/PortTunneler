@@ -9,6 +9,7 @@ When a service moves or restarts on a different host, clients automatically redi
 - **Three connection modes** — automatic discovery, multiplexed tunneling to a known server, or direct TCP forwarding
 - **UDP service discovery** — clients broadcast a service name, servers respond with their address
 - **Health monitoring** — periodic heartbeat checks with automatic reconnection on failure
+- **Hot config reload** — add, remove, or change tunnels and server services at runtime without restarting; unchanged connections stay alive
 - **Native AOT binaries** — single-file executables for Linux, Windows, and macOS (x64 and ARM64)
 - **Run as a system service** — built-in install/uninstall for systemd, Windows Services, and launchd
 
@@ -211,8 +212,11 @@ Validation rules:
 PortTunneler can install itself as a system service on all supported platforms.
 
 ```bash
-# Install and enable the service
+# Install as "PortTunneler" (default)
 ./PortTunneler --install-service
+
+# Install with a custom name (registers as "porttunneler-production")
+./PortTunneler --install-service Production
 
 # Manage the service
 ./PortTunneler --start-service
@@ -222,13 +226,47 @@ PortTunneler can install itself as a system service on all supported platforms.
 ./PortTunneler --uninstall-service
 ```
 
+When installing multiple instances, provide a unique name for each. The `--uninstall-service`, `--start-service`, and `--stop-service` commands find the correct service automatically by matching the executable path.
+
 | Platform | Service Manager | Service File |
 |----------|----------------|--------------|
-| Windows | Windows Service Control Manager | Registered as `PortTunneler` service |
-| Linux | systemd | `/etc/systemd/system/PortTunneler.service` |
-| macOS | launchd | `/Library/LaunchDaemons/PortTunneler.plist` |
+| Windows | Windows Service Control Manager | Registered as `porttunneler` service |
+| Linux | systemd | `/etc/systemd/system/porttunneler.service` |
+| macOS | launchd | `/Library/LaunchDaemons/porttunneler.plist` |
 
 The service runs with `--run-as-service` automatically and is configured to restart on failure. On Linux, the service runs as the user who installed it.
+
+## Hot Config Reload
+
+You can update `config.json` and apply changes without restarting PortTunneler. Active connections for unchanged tunnels and services are not interrupted.
+
+```bash
+# Edit config.json, then:
+./PortTunneler --reload-config
+```
+
+The running instance re-reads `config.json`, validates it, and applies the diff:
+
+| Change | Client side | Server side |
+|--------|-------------|-------------|
+| **Added** | New tunnel listener starts | New service becomes discoverable; new connections are routed |
+| **Removed** | Tunnel listener stops, connections close | Active connections for that service are cancelled |
+| **Changed** | Tunnel restarts (connections drop, clients reconnect) | Active connections are cancelled; new ones use the updated config |
+| **Unchanged** | No action — all connections stay alive | No action — all connections stay alive |
+
+**What counts as "unchanged":** same `ListenPort`, same effective wire tag (`ServiceTag` if set, otherwise `Name`), same mode and addresses. Renaming a tunnel (e.g. `"mssql"` to `"MSSQL Prod"`) while keeping the same `ServiceTag` is a metadata-only change and does not restart the tunnel.
+
+**What requires a full restart:** changing `Tunnels.Enabled`, `Server.Enabled`, `Server.ListenPort`, or `Server.DiscoveryPort`. These are flagged as warnings in the reload response.
+
+If the new config is invalid (bad JSON, validation errors), the reload is rejected and nothing changes.
+
+### How it works
+
+The running process listens on a named pipe for commands. The pipe name is derived from the config file path (`porttunneler-<hash>`), so multiple instances in different directories are naturally isolated. The pipe name is logged at startup.
+
+### Multiple instances
+
+Each instance computes its pipe name from its own `config.json` path. Running `--reload-config` from the same directory as the target instance will connect to the correct pipe automatically.
 
 ## CLI Reference
 
@@ -237,7 +275,8 @@ The service runs with `--run-as-service` automatically and is configured to rest
 | *(none)* | Start PortTunneler as a console application |
 | `--run-as-service` | Run as a system service (used automatically by the service manager) |
 | `--check-config` | Validate `config.json` and exit |
-| `--install-service` | Install as a system service |
+| `--reload-config` | Send a reload signal to the running instance (see [Hot Config Reload](#hot-config-reload)) |
+| `--install-service [name]` | Install as a system service. Optional name for multiple instances (e.g. `--install-service Production`) |
 | `--uninstall-service` | Remove the system service |
 | `--start-service` | Start the installed service |
 | `--stop-service` | Stop the running service |

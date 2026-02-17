@@ -16,7 +16,7 @@ internal sealed class Program
 
         if (args.Contains("--install-service"))
         {
-            return InstallService();
+            return InstallService(GetArgValue(args, "--install-service"));
         }
 
         if (args.Contains("--uninstall-service"))
@@ -192,13 +192,13 @@ internal sealed class Program
         }
     }
 
-    private static int InstallService()
+    private static int InstallService(string? instanceName)
     {
         try
         {
             var serviceInstaller = ServiceInstallerFactory.Create();
-            const string serviceName = "PortTunneler";
-            const string displayName = "PortTunneler Service";
+            var serviceName = (instanceName != null ? $"porttunneler-{instanceName}" : "porttunneler").ToLowerInvariant();
+            var displayName = instanceName != null ? $"PortTunneler - {instanceName}" : "PortTunneler";
             var fileName = Environment.ProcessPath
                            ?? throw new InvalidOperationException("Cannot determine executable path.");
             const string arguments = "--run-as-service";
@@ -344,5 +344,15 @@ internal sealed class Program
             Console.Error.WriteLine($"Failed to stop service: {ex.Message}");
             return 1;
         }
+    }
+
+    private static string? GetArgValue(string[] args, string flag)
+    {
+        var index = Array.IndexOf(args, flag);
+        if (index < 0 || index + 1 >= args.Length)
+            return null;
+
+        var value = args[index + 1];
+        return value.StartsWith("--") ? null : value;
     }
 }
